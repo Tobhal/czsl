@@ -20,8 +20,8 @@ def compute_cosine_similarity(names, weights, return_dict=True):
         return dict_sim
     return pairing_names, similarity.to('cpu')
 
-class CompCos(nn.Module):
 
+class CompCos(nn.Module):
     def __init__(self, dset, args):
         super(CompCos, self).__init__()
         self.args = args
@@ -104,7 +104,8 @@ class CompCos(nn.Module):
         # Fixed
         self.composition = args.composition
 
-        input_dim = args.emb_dim
+        # input_dim = args.emb_dim
+        input_dim = 512
         self.attr_embedder = nn.Embedding(len(dset.attrs), input_dim)
         self.obj_embedder = nn.Embedding(len(dset.objs), input_dim)
 
@@ -115,7 +116,12 @@ class CompCos(nn.Module):
             pretrained_weight = load_word_embeddings(args.emb_init, dset.objs)
             self.obj_embedder.weight.data.copy_(pretrained_weight)
 
-        # static inputs
+        print()
+        print('load_word_embeddings done')
+        print(self.attr_embedder)
+        print(self.obj_embedder)
+        print()
+        
         if args.static_inp:
             for param in self.attr_embedder.parameters():
                 param.requires_grad = False

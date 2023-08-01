@@ -20,8 +20,6 @@ from utils.utils import load_args
 from utils.config_model import configure_model
 from flags import parser
 
-
-
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def main():
