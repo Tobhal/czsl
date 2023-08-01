@@ -104,8 +104,7 @@ class CompCos(nn.Module):
         # Fixed
         self.composition = args.composition
 
-        # input_dim = args.emb_dim
-        input_dim = 512
+        input_dim = args.emb_dim
         self.attr_embedder = nn.Embedding(len(dset.attrs), input_dim)
         self.obj_embedder = nn.Embedding(len(dset.objs), input_dim)
 
@@ -121,7 +120,7 @@ class CompCos(nn.Module):
         print(self.attr_embedder)
         print(self.obj_embedder)
         print()
-        
+
         if args.static_inp:
             for param in self.attr_embedder.parameters():
                 param.requires_grad = False

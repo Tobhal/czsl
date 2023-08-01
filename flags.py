@@ -1,6 +1,6 @@
 import argparse
 
-DATA_FOLDER = "ROOT_FOLDER"
+DATA_FOLDER = "DATA_ROOT"
 parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
 parser.add_argument('--config', default='configs/args.yml', help='path of the config file (training only)')
@@ -31,7 +31,7 @@ parser.add_argument('--embed_rank', type=int, default=64, help='intermediate dim
 parser.add_argument('--bias', type=float, default=1e3, help='Bias value for unseen concepts')
 parser.add_argument('--update_features', action = 'store_true', default=False, help='If specified, train feature extractor')
 parser.add_argument('--freeze_features', action = 'store_true', default=False, help='If specified, put extractor in eval mode')
-parser.add_argument('--emb_init', default=None, help='w2v|ft|gl|glove|word2vec|fasttext, name of embeddings to use for initializing the primitives')
+parser.add_argument('--emb_init', default=None, help='w2v|ft|gl|glove|word2vec|fasttext|clip, name of embeddings to use for initializing the primitives')
 parser.add_argument('--clf_init', action='store_true', default=False, help='initialize inputs with SVM weights')
 parser.add_argument('--static_inp', action='store_true', default=False, help='do not optimize primitives representations')
 parser.add_argument('--composition', default='mlp_add', help='add|mul|mlp|mlp_add, how to compose primitives')

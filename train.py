@@ -37,36 +37,38 @@ def main():
 
     # Get dataset
     trainset = dset.CompositionDataset(
-        root=os.path.join(DATA_FOLDER,args.data_dir),
-        phase='train',
-        split=args.splitname,
-        model =args.image_extractor,
-        num_negs=args.num_negs,
-        pair_dropout=args.pair_dropout,
+        root            = os.path.join(DATA_FOLDER,args.data_dir),
+        phase           = 'train',
+        split           = args.splitname,
+        model           = args.image_extractor,
+        num_negs        = args.num_negs,
+        pair_dropout    = args.pair_dropout,
         update_features = args.update_features,
-        train_only= args.train_only,
-        open_world=args.open_world
+        train_only      = args.train_only,
+        open_world      = args.open_world
     )
     trainloader = torch.utils.data.DataLoader(
         trainset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=args.workers)
+        batch_size  = args.batch_size,
+        shuffle     = True,
+        num_workers = args.workers
+    )
+
     testset = dset.CompositionDataset(
-        root=os.path.join(DATA_FOLDER,args.data_dir),
-        phase=args.test_set,
-        split=args.splitname,
-        model =args.image_extractor,
-        subset=args.subset,
+        root            = os.path.join(DATA_FOLDER,args.data_dir),
+        phase           = args.test_set,
+        split           = args.splitname,
+        model           = args.image_extractor,
+        subset          = args.subset,
         update_features = args.update_features,
-        open_world=args.open_world
+        open_world      = args.open_world
     )
     testloader = torch.utils.data.DataLoader(
         testset,
-        batch_size=args.test_batch_size,
-        shuffle=False,
-        num_workers=args.workers)
-
+        batch_size  = args.test_batch_size,
+        shuffle     = False,
+        num_workers = args.workers
+    )
 
     # Get model and optimizer
     image_extractor, model, optimizer = configure_model(args, trainset)
@@ -74,7 +76,7 @@ def main():
 
     train = train_normal
 
-    evaluator_val =  Evaluator(testset, model)
+    evaluator_val = Evaluator(testset, model)
 
     print(model)
 
@@ -105,7 +107,7 @@ def main():
         if epoch % args.eval_val_every == 0:
             with torch.no_grad(): # todo: might not be needed
                 test(epoch, image_extractor, model, testloader, evaluator_val, writer, args, logpath)
-                
+
     write_log(best_auc, best_hm)
 
 
@@ -116,11 +118,11 @@ def train_normal(epoch, image_extractor, model, trainloader, optimizer, writer):
 
     if image_extractor:
         image_extractor.train()
-    model.train() # Let's switch to training
+    model.train()  # Let's switch to training
 
     train_loss = 0.0 
-    for idx, data in tqdm(enumerate(trainloader), total=len(trainloader), desc = 'Training'):
-        data  = [d.to(device) for d in data]
+    for idx, data in tqdm(enumerate(trainloader), total=len(trainloader), desc='Training'):
+        data = [d.to(device) for d in data]
 
         if image_extractor:
             data[0] = image_extractor(data[0])
@@ -230,12 +232,14 @@ def test(epoch, image_extractor, model, testloader, evaluator, writer, args, log
 
 # Logging to a file in Python
 def write_log(auc, hm):
+    args = parser.parse_args()
+
     print('Best AUC achieved is ', best_auc)
     print('Best HM achieved is ', best_hm)
-    
+
     with open('log.txt', 'a') as file:  # 'a' stands for 'append'
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')  # format datetime as string
-        file.write(f'Time: {timestamp}\n')
+        file.write(f'Data: {args.data_dir} | Time: {timestamp}\n')
         file.write(f'Best AUC achived is: {str(auc)}\n')
         file.write(f'Best HM achived is: {str(hm)}\n')
         file.write('\n')
