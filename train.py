@@ -12,6 +12,7 @@ from tqdm import tqdm
 import os
 from os.path import join as ospj
 import csv
+from datetime import datetime
 
 #Local imports
 from data import dataset as dset
@@ -104,8 +105,8 @@ def main():
         if epoch % args.eval_val_every == 0:
             with torch.no_grad(): # todo: might not be needed
                 test(epoch, image_extractor, model, testloader, evaluator_val, writer, args, logpath)
-    print('Best AUC achieved is ', best_auc)
-    print('Best HM achieved is ', best_hm)
+                
+    write_log(best_auc, best_hm)
 
 
 def train_normal(epoch, image_extractor, model, trainloader, optimizer, writer):
@@ -227,9 +228,20 @@ def test(epoch, image_extractor, model, testloader, evaluator, writer, args, log
         w.writerow(stats)
 
 
+# Logging to a file in Python
+def write_log(auc, hm):
+    print('Best AUC achieved is ', best_auc)
+    print('Best HM achieved is ', best_hm)
+    
+    with open('log.txt', 'a') as file:  # 'a' stands for 'append'
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')  # format datetime as string
+        file.write(f'Time: {timestamp}\n')
+        file.write(f'Best AUC achived is: {str(auc)}\n')
+        file.write(f'Best HM achived is: {str(hm)}\n')
+        file.write('\n')
+
 if __name__ == '__main__':
     try:
         main()
     except KeyboardInterrupt:
-        print('Best AUC achieved is ', best_auc)
-        print('Best HM achieved is ', best_hm)
+        write_log(best_auc, best_hm)

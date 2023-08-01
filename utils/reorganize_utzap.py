@@ -17,12 +17,12 @@ import torch
 import shutil
 import tqdm
 
-DATA_FOLDER= "ROOT_FOLDER"
+DATA_FOLDER= "data_root"
 
 root = DATA_FOLDER+'/ut-zap50k/'
 os.makedirs(root+'/images',exist_ok=True)
 
-data = torch.load(root+'/metadata_compositional-split-natural.t7')
+data = torch.load(root+'metadata_compositional-split-natural.t7')
 for instance in tqdm.tqdm(data):
 	image, attr, obj = instance['_image'], instance['attr'], instance['obj']
 	old_file = '%s/_images/%s'%(root, image)

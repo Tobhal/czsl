@@ -144,3 +144,5 @@ tensor-completion/*
 *.csv
 *.txt
 notebooks/._mit_graph.pdf
+
+DATA_ROOT/

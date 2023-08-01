@@ -1,6 +1,9 @@
 import torch
 import numpy as np
+import clip
 from flags import DATA_FOLDER
+
+
 def load_word_embeddings(emb_type, vocab):
     if emb_type == 'glove':
         embeds = load_glove_embeddings(vocab)
@@ -33,9 +36,69 @@ def load_word_embeddings(emb_type, vocab):
         embeds3 = load_glove_embeddings(vocab)
         embeds = torch.cat([embeds1, embeds2, embeds3], dim = 1)
         print('Combined embeddings are ',embeds.shape)
+    elif emb_type == 'clip':
+        embeds = load_clip_embeddings(vocab)
+        print('Embedding is: ',embeds.shape)
     else:
         raise ValueError('Invalid embedding')
     return embeds
+
+def load_clip_embeddings(vocab):
+    """
+    Convert the words to CLIP vector.
+    
+    :param vocab list of words
+    
+    :return CLIP embedings
+    """
+    
+    print('Loading CLIP embeddings')
+    
+    custom_map = {
+        'Faux.Fur': 'fake fur',
+        'Faux.Leather': 'fake leather',
+        'Full.grain.leather': 'thick leather',
+        'Hair.Calf': 'hairy leather',
+        'Patent.Leather': 'shiny leather',
+        'Boots.Ankle': 'ankle boots',
+        'Boots.Knee.High': 'kneehigh boots',
+        'Boots.Mid-Calf': 'midcalf boots',
+        'Shoes.Boat.Shoes': 'boatshoes',
+        'Shoes.Clogs.and.Mules': 'clogs shoes',
+        'Shoes.Flats': 'flats shoes',
+        'Shoes.Heels': 'heels',
+        'Shoes.Loafers': 'loafers',
+        'Shoes.Oxfords': 'oxford shoes',
+        'Shoes.Sneakers.and.Athletic.Shoes': 'sneakers',
+        'traffic_light': 'traficlight',
+        'trash_can': 'trashcan',
+        'dry-erase_board' : 'dry_erase_board',
+        'black_and_white' : 'black_white',
+        'eiffel_tower' : 'tower'
+    }
+    
+    # Fix some words.
+    vocab_corrected = []
+    for current in vocab:
+        if current in custom_map:
+            vocab_corrected.append(custom_map[current])
+        else:
+            vocab_corrected.append(current)
+    
+    print('Load CLIP model')
+    # Load CLIP model
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model, preprocess = clip.load("ViT-B/32", device=device)
+    
+    print('Tokenize')
+    text = clip.tokenize(vocab_corrected).to(device)
+    
+    print('text features')
+    text_features = model.encode_text(text)
+    
+    print('Done loading CLIP embeddings')
+    
+    return text_features
 
 def load_fasttext_embeddings(vocab):
     custom_map = {
@@ -181,3 +244,6 @@ def load_glove_embeddings(vocab):
     embeds = torch.stack(embeds)
     print('Glove Embeddings loaded, total embeddings: {}'.format(embeds.size()))
     return embeds
+
+if __name__ == '__main__':
+    print('word embeddings')
