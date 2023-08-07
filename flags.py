@@ -23,7 +23,7 @@ parser.add_argument('--test_batch_size', type=int, default=32, help="Batch size 
 parser.add_argument('--cpu_eval', action='store_true', help='Perform test on cpu')
 
 # Model parameters
-parser.add_argument('--model', default='graphfull', help='visprodNN|redwine|labelembed+|attributeop|tmn|compcos')
+parser.add_argument('--model', default='graphfull', help='visprodNN|redwine|labelembed+|attributeop|tmn|compcos|clip')
 parser.add_argument('--emb_dim', type=int, default=300, help='dimension of share embedding space')
 parser.add_argument('--nlayers', type=int, default=3, help='Layers in the image embedder')
 parser.add_argument('--nmods', type=int, default=24, help='number of mods per layer for TMN')

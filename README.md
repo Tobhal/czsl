@@ -56,7 +56,12 @@ To run experiments in the open world setting for a non-open world method, just a
 ```
     python train.py --config configs/baselines/mit/symnet.yml --open_world
 ```
-**Note:** To create a new config, all the available arguments are indicated in `flags.py`. 
+**Note:** To create a new config, all the available arguments are indicated in `flags.py`.
+
+**Bengali** To train on bengali things:
+```
+    python train.py --config configs/bengali/bengali.yml
+```
 
 ## Test
  

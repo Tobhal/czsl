@@ -16,6 +16,7 @@ from datetime import datetime
 
 #Local imports
 from data import dataset as dset
+from data import dataset_clip
 from models.common import Evaluator
 from utils.utils import save_args, load_args
 from utils.config_model import configure_model
@@ -35,25 +36,46 @@ def main():
     save_args(args, logpath, args.config)
     writer = SummaryWriter(log_dir = logpath, flush_secs = 30)
 
-    # Get dataset
-    trainset = dset.CompositionDataset(
-        root            = os.path.join(DATA_FOLDER,args.data_dir),
-        phase           = 'train',
-        split           = args.splitname,
-        model           = args.image_extractor,
-        num_negs        = args.num_negs,
-        pair_dropout    = args.pair_dropout,
-        update_features = args.update_features,
-        train_only      = args.train_only,
-        open_world      = args.open_world
-    )
-    trainloader = torch.utils.data.DataLoader(
-        trainset,
-        batch_size  = args.batch_size,
-        shuffle     = True,
-        num_workers = args.workers
-    )
+    print(args.emb_init)
+    
 
+    # Get dataset
+    if args.emb_init == 'clip':
+        trainset = dataset_clip.CompositionDataset(
+            root            = os.path.join(DATA_FOLDER,args.data_dir),
+            phase           = 'train',
+            split           = args.splitname,
+            model           = args.image_extractor,
+            num_negs        = args.num_negs,
+            pair_dropout    = args.pair_dropout,
+            update_features = args.update_features,
+            train_only      = args.train_only,
+            open_world      = args.open_world
+        )
+        
+        exit()
+        
+        trainloader = torch.utils.data.DataLoader()
+        testloader = torch.utils.data.DataLoader()
+    else:
+        trainset = dset.CompositionDataset(
+            root            = os.path.join(DATA_FOLDER,args.data_dir),
+            phase           = 'train',
+            split           = args.splitname,
+            model           = args.image_extractor,
+            num_negs        = args.num_negs,
+            pair_dropout    = args.pair_dropout,
+            update_features = args.update_features,
+            train_only      = args.train_only,
+            open_world      = args.open_world
+        )
+        trainloader = torch.utils.data.DataLoader(
+            trainset,
+            batch_size  = args.batch_size,
+            shuffle     = True,
+            num_workers = args.workers
+        )
+    
     testset = dset.CompositionDataset(
         root            = os.path.join(DATA_FOLDER,args.data_dir),
         phase           = args.test_set,
@@ -216,11 +238,13 @@ def test(epoch, image_extractor, model, testloader, evaluator, writer, args, log
         best_auc = stats['AUC']
         print('New best AUC ', best_auc)
         save_checkpoint('best_auc')
+        write_log(auc=best_auc)
 
     if stats['best_hm'] > best_hm:
         best_hm = stats['best_hm']
         print('New best HM ', best_hm)
         save_checkpoint('best_hm')
+        write_log(hm=best_hm)
 
     # Logs
     with open(ospj(logpath, 'logs.csv'), 'a') as f:
@@ -231,18 +255,21 @@ def test(epoch, image_extractor, model, testloader, evaluator, writer, args, log
 
 
 # Logging to a file in Python
-def write_log(auc, hm):
+def write_log(auc=None, hm=None):
     args = parser.parse_args()
 
-    print('Best AUC achieved is ', best_auc)
-    print('Best HM achieved is ', best_hm)
+    print('Best AUC achieved is ', auc)
+    print('Best HM achieved is ', hm)
 
-    with open('log.txt', 'a') as file:  # 'a' stands for 'append'
+    with open('logs/text/log_train_cgqa_open_world.txt', 'a') as file:  # 'a' stands for 'append'
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')  # format datetime as string
         file.write(f'Data: {args.data_dir} | Time: {timestamp}\n')
-        file.write(f'Best AUC achived is: {str(auc)}\n')
-        file.write(f'Best HM achived is: {str(hm)}\n')
+        if auc:
+            file.write(f'Best AUC achived is: {str(auc)}\n')
+        if hm:
+            file.write(f'Best HM achived is: {str(hm)}\n')
         file.write('\n')
+
 
 if __name__ == '__main__':
     try:
