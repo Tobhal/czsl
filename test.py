@@ -4,6 +4,7 @@ from torch.utils.tensorboard import SummaryWriter
 import torch.backends.cudnn as cudnn
 import numpy as np
 from flags import DATA_FOLDER
+from datetime import datetime
 
 cudnn.benchmark = True
 
@@ -21,6 +22,8 @@ from utils.config_model import configure_model
 from flags import parser
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+log_file = 'logs/text/log_test_cdqa_open_world.txt'
 
 def main():
     # Get arguments and start logging
@@ -111,8 +114,7 @@ def main():
                     if auc > best_auc:
                         best_auc = auc
                         best_th = th
-                        print('New best AUC',best_auc)
-                        print('Threshold',best_th)
+                        write_log(best_auc, best_th)
 
             threshold = best_th
 
@@ -178,7 +180,29 @@ def test(image_extractor, model, testloader, evaluator,  args, threshold=None, p
         if print_results:
             print(f'Results')
             print(result)
+            
+            with open(log_file, 'a') as file:
+                timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')  # format datetime as string
+                file.write(f'Data: {args.data_dir} | Time: {timestamp}\n')
+                file.write(f'Resoult: {str(result)}')
+                file.write('\n')
+            
         return results
+
+
+# Logging to a file in Python
+def write_log(auc, hm):
+    args = parser.parse_args()
+
+    print('Best AUC achieved is ', auc)
+    print('Best TH achieved is ', hm)
+
+    with open(log_file, 'a') as file:  # 'a' stands for 'append'
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')  # format datetime as string
+        file.write(f'Data: {args.data_dir} | Time: {timestamp}\n')
+        file.write(f'Best AUC achived is: {str(auc)}\n')
+        file.write(f'Best TH achived is: {str(hm)}\n')
+        file.write('\n')
 
 
 if __name__ == '__main__':

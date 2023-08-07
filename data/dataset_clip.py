@@ -259,7 +259,7 @@ class CompositionDataset(Dataset):
 
         for instance in data:
             image, attr, obj, settype = instance['image'], instance['attr'], \
-                instance['obj'], instance['set']
+                    instance['obj'], instance['set']
             curr_data = [image, attr, obj]
 
             if attr == 'NA' or (attr, obj) not in self.pairs or settype == 'NA':
@@ -283,7 +283,7 @@ class CompositionDataset(Dataset):
         for current in data:
             image, attr, obj = current
             data_dict[(attr, obj)].append(image)
-        
+
         return data_dict
 
 
@@ -303,8 +303,8 @@ class CompositionDataset(Dataset):
             n_pairs, len(self.train_pairs)))
 
         self.sample_indices = [ i for i in range(len(self.data))
-            if (self.data[i][1], self.data[i][2]) in self.sample_pairs
-        ]
+                                if (self.data[i][1], self.data[i][2]) in self.sample_pairs
+                                ]
         print('Using {} images out of {} images right now'.format(
             len(self.sample_indices), len(self.data)))
 
@@ -321,8 +321,8 @@ class CompositionDataset(Dataset):
 
         while new_attr == attr and new_obj == obj:
             new_attr, new_obj = self.sample_pairs[np.random.choice(
-            len(self.sample_pairs))]
-        
+                len(self.sample_pairs))]
+
         return (self.attr2idx[new_attr], self.obj2idx[new_obj])
 
     def sample_affordance(self, attr, obj):
@@ -334,10 +334,10 @@ class CompositionDataset(Dataset):
             Idx of a different attribute for the same object
         '''
         new_attr = np.random.choice(self.obj_affordance[obj])
-        
+
         while new_attr == attr:
             new_attr = np.random.choice(self.obj_affordance[obj])
-        
+
         return self.attr2idx[new_attr]
 
     def sample_train_affordance(self, attr, obj):
@@ -349,10 +349,10 @@ class CompositionDataset(Dataset):
             Idx of a different attribute for the same object from the training pairs
         '''
         new_attr = np.random.choice(self.train_obj_affordance[obj])
-        
+
         while new_attr == attr:
             new_attr = np.random.choice(self.train_obj_affordance[obj])
-        
+
         return self.attr2idx[new_attr]
 
     def generate_features(self, out_file, model):
@@ -378,7 +378,7 @@ class CompositionDataset(Dataset):
         image_feats = []
         image_files = []
         for chunk in tqdm(
-                chunks(files_all, 512), total=len(files_all) // 512, desc=f'Extracting features {model}'):
+            chunks(files_all, 512), total=len(files_all) // 512, desc=f'Extracting features {model}'):
 
             files = chunk
             imgs = list(map(self.loader, files))
@@ -407,7 +407,7 @@ class CompositionDataset(Dataset):
             img = self.transform(img)
 
         data = [img, self.attr2idx[attr], self.obj2idx[obj], self.pair2idx[(attr, obj)]]
-        
+
         if self.phase == 'train':
             all_neg_attrs = []
             all_neg_objs = []
@@ -418,15 +418,15 @@ class CompositionDataset(Dataset):
                 all_neg_objs.append(neg_obj)
 
             neg_attr, neg_obj = torch.LongTensor(all_neg_attrs), torch.LongTensor(all_neg_objs)
-            
+
             #note here
             if len(self.train_obj_affordance[obj])>1:
-                  inv_attr = self.sample_train_affordance(attr, obj) # attribute for inverse regularizer
+                inv_attr = self.sample_train_affordance(attr, obj) # attribute for inverse regularizer
             else:
-                  inv_attr = (all_neg_attrs[0]) 
+                inv_attr = (all_neg_attrs[0]) 
 
             comm_attr = self.sample_affordance(inv_attr, obj) # attribute for commutative regularizer
-            
+
 
             data += [neg_attr, neg_obj, inv_attr, comm_attr]
 
@@ -435,9 +435,10 @@ class CompositionDataset(Dataset):
             data.append(image)
 
         return data
-    
+
     def __len__(self):
         '''
         Call for length
         '''
         return len(self.sample_indices)
+    
