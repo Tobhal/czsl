@@ -15,7 +15,7 @@ import csv
 from datetime import datetime
 
 #Local imports
-from data import dataset as dset
+from data import dataset
 from data import dataset_clip
 from models.common import Evaluator
 from utils.utils import save_args, load_args
@@ -38,45 +38,33 @@ def main():
 
     print(args.emb_init)
     
-
-    # Get dataset
+    # Set CompositDataset
     if args.emb_init == 'clip':
-        trainset = dataset_clip.CompositionDataset(
-            root            = os.path.join(DATA_FOLDER,args.data_dir),
-            phase           = 'train',
-            split           = args.splitname,
-            model           = args.image_extractor,
-            num_negs        = args.num_negs,
-            pair_dropout    = args.pair_dropout,
-            update_features = args.update_features,
-            train_only      = args.train_only,
-            open_world      = args.open_world
-        )
-        
-        exit()
-        
-        trainloader = torch.utils.data.DataLoader()
-        testloader = torch.utils.data.DataLoader()
+        dset = dataset_clip.CompositionDataset
     else:
-        trainset = dset.CompositionDataset(
-            root            = os.path.join(DATA_FOLDER,args.data_dir),
-            phase           = 'train',
-            split           = args.splitname,
-            model           = args.image_extractor,
-            num_negs        = args.num_negs,
-            pair_dropout    = args.pair_dropout,
-            update_features = args.update_features,
-            train_only      = args.train_only,
-            open_world      = args.open_world
-        )
-        trainloader = torch.utils.data.DataLoader(
-            trainset,
-            batch_size  = args.batch_size,
-            shuffle     = True,
-            num_workers = args.workers
-        )
+        dset = dataset.CompositionDataset
+        
+    # Get dataset
+    trainset = dset(
+        root            = os.path.join(DATA_FOLDER,args.data_dir),
+        phase           = 'train',
+        split           = args.splitname,
+        model           = args.image_extractor,
+        num_negs        = args.num_negs,
+        pair_dropout    = args.pair_dropout,
+        update_features = args.update_features,
+        train_only      = args.train_only,
+        open_world      = args.open_world
+    )
     
-    testset = dset.CompositionDataset(
+    trainloader = torch.utils.data.DataLoader(
+        trainset,
+        batch_size  = args.batch_size,
+        shuffle     = True,
+        num_workers = args.workers
+    )
+    
+    testset = dset(
         root            = os.path.join(DATA_FOLDER,args.data_dir),
         phase           = args.test_set,
         split           = args.splitname,
@@ -101,6 +89,8 @@ def main():
     evaluator_val = Evaluator(testset, model)
 
     print(model)
+
+    exit()
 
     start_epoch = 0
     # Load checkpoint
