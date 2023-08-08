@@ -131,6 +131,7 @@ class CompositionDataset(Dataset):
             self.val_pairs, self.test_pairs = self.parse_split()
         
         self.train_data, self.val_data, self.test_data = self.get_split_info()
+        
         self.full_pairs = list(product(self.attrs,self.objs))
         
         # Clean only was here
@@ -166,7 +167,7 @@ class CompositionDataset(Dataset):
             len(self.train_pairs), len(self.val_pairs), len(self.test_pairs)))
         print('Train images: {}, Validation images: {}, Test images: {}'.format(
             len(self.train_data), len(self.val_data), len(self.test_data)))
-
+        
         if subset:
             ind = np.arange(len(self.data))
             ind = ind[::len(ind) // 1000]
@@ -241,7 +242,8 @@ class CompositionDataset(Dataset):
         #now we compose all objs, attrs and pairs
         all_attrs, all_objs = sorted(
             list(set(tr_attrs + vl_attrs + ts_attrs))), sorted(
-                list(set(tr_objs + vl_objs + ts_objs)))
+                list(set(tr_objs + vl_objs + ts_objs))
+            )
         all_pairs = sorted(list(set(tr_pairs + vl_pairs + ts_pairs)))
 
         return all_attrs, all_objs, all_pairs, tr_pairs, vl_pairs, ts_pairs
