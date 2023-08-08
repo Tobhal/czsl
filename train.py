@@ -57,6 +57,8 @@ def main():
         open_world      = args.open_world
     )
     
+    exit()
+    
     trainloader = torch.utils.data.DataLoader(
         trainset,
         batch_size  = args.batch_size,

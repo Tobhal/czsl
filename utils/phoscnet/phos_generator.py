@@ -37,7 +37,9 @@ def set_phos_version(version: str='eng'):
     elif version == 'nor':
         alphabet_csv = "modules/utils/AlphabetNorwegian.csv"
     elif version == 'ben':
-        alphabet_csv = "modules/utils/AlphabetBengali.csv"
+        alphabet_csv = "utils/phoscnet/AlphabetBengali.csv"
+        # alphabet_csv = "AlphabetBengali.csv"
+        
 
     alphabet_dict = create_alphabet_dictionary(alphabet_csv)
     csv_num_cols = get_number_of_columns(alphabet_csv)
@@ -96,7 +98,7 @@ def label_maker(word_txt):
 
 if __name__ == '__main__':
     set_phos_version('ben')
-    regular_phos = generate_label('অঐত')
+    regular_phos = generate_label('অভয়নগর')
     # new_phos = generate_label_NOR('zz')
     
     print(regular_phos)

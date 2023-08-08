@@ -16,6 +16,7 @@ from models.image_extractor import get_image_extractor
 from itertools import product
 
 import clip
+from utils.phoscnet.phos_generator import set_phos_version, generate_label 
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -129,20 +130,26 @@ class CompositionDataset(Dataset):
         self.feat_dim = 512 if 'resnet18' in model else 2048 # todo, unify this  with models
         self.open_world = open_world
 
-        # self.attrs, self.objs, self.pairs, self.train_pairs, self.test_pairs = self.parse_split()
-        self.all_words, self.training_words, self.testing_words = self.parse_split()
+        self.attrs, self.objs, self.pairs, self.train_pairs, self.test_pairs = self.parse_split()
         
         self.train_data, self.test_data = self.get_split_info()
         
+        self.full_pairs = list(product(self.attrs,self.objs))
+        
         # Clean only was here
-        self.obj_to_idx = {obj: idx for idx, obj in enumerate(self.all_words)}
+        self.obj2idx = {obj: idx for idx, obj in enumerate(self.objs)}
+        self.attr2idx = {attr : idx for idx, attr in enumerate(self.attrs)}
+        if self.open_world:
+            self.pairs = self.full_pairs
+
+        self.all_pair2idx = {pair: idx for idx, pair in enumerate(self.pairs)}
 
         if train_only and self.phase == 'train':
             print('Using only train pairs')
             self.pair2idx = {pair : idx for idx, pair in enumerate(self.train_pairs)}
         else:
             print('Using all pairs')
-            self.pair2idx = {pair : idx for idx, pair in enumerate(self.all_words)}
+            self.pair2idx = {pair : idx for idx, pair in enumerate(self.pairs)}
         
         if self.phase == 'train':
             self.data = self.train_data
@@ -150,53 +157,49 @@ class CompositionDataset(Dataset):
             self.data = self.test_data
         elif self.phase == 'all':
             print('Using all data')
-            self.data = self.train_data + self.test_data
+            self.data = self.train_data + self.val_data + self.test_data
         else:
             raise ValueError('Invalid training phase')
         
-        self.all_data = self.train_data + self.test_data
+        self.all_data = self.train_data + self.val_data + self.test_data
         print('Dataset loaded')
-        print(f'Train pairs: {len(self.training_words)}, Test Pairs: {len(self.testing_words)}')
-        print(f'Train images: {len(self.train_data)}, Test images: {len(self.test_data)}')
-
+        print('Train pairs: {}, Validation pairs: {}, Test Pairs: {}'.format(
+            len(self.train_pairs), len(self.val_pairs), len(self.test_pairs)))
+        print('Train images: {}, Validation images: {}, Test images: {}'.format(
+            len(self.train_data), len(self.val_data), len(self.test_data)))
+        
         if subset:
             ind = np.arange(len(self.data))
             ind = ind[::len(ind) // 1000]
             self.data = [self.data[i] for i in ind]
 
+
         # Keeping a list of all pairs that occur with each object
         self.obj_affordance = {}
         self.train_obj_affordance = {}
-        
-        """
         for _obj in self.objs:
             candidates = [attr for (_, attr, obj) in self.train_data+self.test_data if obj==_obj]
             self.obj_affordance[_obj] = list(set(candidates))
 
             candidates = [attr for (_, attr, obj) in self.train_data if obj==_obj]
             self.train_obj_affordance[_obj] = list(set(candidates))
-        """
-        
+
         self.sample_indices = list(range(len(self.data)))
-        self.sample_pairs = self.training_words
+        self.sample_pairs = self.train_pairs
 
         # Load based on what to output
         self.transform = dataset_transform(self.phase, self.norm_family)
-        self.loader = ImageLoader(ospj(self.root, self.split))
-
+        self.loader = ImageLoader(ospj(self.root, 'images'))
         if not self.update_features:
             feat_file = ospj(root, model+'_featurers.t7')
             print(f'Using {model} and feature file {feat_file}')
-
             if not os.path.exists(feat_file):
                 with torch.no_grad():
                     self.generate_features(feat_file, model)
-
             self.phase = phase
             activation_data = torch.load(feat_file)
             self.activations = dict(
                 zip(activation_data['files'], activation_data['features']))
-
             self.feat_dim = activation_data['features'].size(1)
             print('{} activations loaded'.format(len(self.activations)))
 
@@ -208,36 +211,44 @@ class CompositionDataset(Dataset):
             all_objs: List of all objects
             all_pairs: List of all combination of attrs and objs
             tr_pairs: List of train pairs of attrs and objs
+            vl_pairs: List of validation pairs of attrs and objs
             ts_pairs: List of test pairs of attrs and objs
         '''
-        def parse_pairs(pair_list: str):
-            '''
-            Helper function to parse each phase to object attrribute vectors
-            Inputs
-                pair_list: path to textfile
-            '''
-            with open(pair_list, 'r') as f:
-                word = f.read().strip().split('\n')
-                
-            return word
-
+        # Encode `BENGALI` using clip
         device = "cuda" if torch.cuda.is_available() else "cpu"
         model, preprocess = clip.load("ViT-B/32", device=device)
 
-        training_words = parse_pairs(
+        text = clip.tokenize(["BENGALI"]).to(device)
+        
+        with torch.no_grad():
+            bengali_clip = model.encode_text(text)
+            
+        bengali_clip = bengali_clip.cpu().numpy()
+        
+        # Set phosc language version
+        set_phos_version('ben')
+        
+        def parse_pairs(pair_list):
+            with open(pair_list, 'r') as f:
+                pairs = f.read().strip().split('\n')
+                pairs = [line.split() for line in pairs]
+                pairs = [(list(bengali_clip), list(generate_label(pair[0]))) for pair in pairs]
+
+            attrs, objs = zip(*pairs)
+            return list(attrs), list(objs), list(pairs)
+
+        tr_attrs, tr_objs, tr_pairs = parse_pairs(
             ospj(self.root, self.split, "train", f'Train_Labels_{self.split}.txt')
         )
-        training_words = clip.tokenize(training_words).to(device)
-        
-        testing_words = parse_pairs(
+        ts_attrs, ts_objs, ts_pairs = parse_pairs(
             ospj(self.root, self.split, "test", f'Test_Labels_{self.split}.txt')
         )
-        testing_words = clip.tokenize(testing_words).to(device)
         
         #now we compose all objs, attrs and pairs
-        all_words = torch.cat([training_words, testing_words], dim=0)
+        all_attrs, all_objs = list(tr_attrs + ts_attrs), list(tr_objs + ts_objs)
+        all_pairs = list(tr_pairs + ts_pairs)
 
-        return all_words, training_words, testing_words
+        return all_attrs, all_objs, all_pairs, tr_pairs, ts_pairs
 
     def get_split_info(self):
         '''
@@ -247,23 +258,36 @@ class CompositionDataset(Dataset):
             train_data, val_data, test_data: List of tuple of image, attrs, obj
         '''
         train_data, test_data = [], []
+        set_phos_version('ben')
         
-        for i, word in enumerate(self.training_words):
+        with open(
+            ospj(self.root, self.split, "train", f'Train_Labels_{self.split}.txt'),
+            'r'
+        ) as f:
+            train_words = f.read().strip().split('\n')
+            
+        with open(
+            ospj(self.root, self.split, "test", f'Test_Labels_{self.split}.txt'),
+            'r'
+        ) as f:
+            test_words = f.read().strip().split('\n')
+        
+        for i, word in enumerate(train_words):
             images = os.listdir(ospj(self.root, self.split, 'train', str(i)))
             
             for image in images:
                 train_data.append([
                     ospj('train', str(i), image),
-                    word
+                    generate_label(word)
                 ])
                 
-        for i, word in enumerate(self.testing_words):
+        for i, word in enumerate(test_words):
             images = os.listdir(ospj(self.root, self.split, 'test', str(i + 200)))
             
             for image in images:
                 test_data.append([
                     ospj('test', str(i + 200), image),
-                    word
+                    generate_label(word)
                 ])
 
         return train_data, test_data
