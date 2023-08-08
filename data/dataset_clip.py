@@ -217,23 +217,25 @@ class CompositionDataset(Dataset):
                 pair_list: path to textfile
             '''
             with open(pair_list, 'r') as f:
-
                 word = f.read().strip().split('\n')
-
+                
             return word
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        model, preprocess = clip.load("ViT-B/32", device=device)
 
         training_words = parse_pairs(
             ospj(self.root, self.split, "train", f'Train_Labels_{self.split}.txt')
         )
+        training_words = clip.tokenize(training_words).to(device)
         
         testing_words = parse_pairs(
             ospj(self.root, self.split, "test", f'Test_Labels_{self.split}.txt')
         )
+        testing_words = clip.tokenize(testing_words).to(device)
         
         #now we compose all objs, attrs and pairs
-        all_words = sorted(
-            set(training_words + testing_words)
-        )
+        all_words = torch.cat([training_words, testing_words], dim=0)
 
         return all_words, training_words, testing_words
 
