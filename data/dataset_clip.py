@@ -136,6 +136,7 @@ class CompositionDataset(Dataset):
         
         self.full_pairs = list(product(self.attrs,self.objs))
         
+        """
         # Clean only was here
         self.obj2idx = {obj: idx for idx, obj in enumerate(self.objs)}
         self.attr2idx = {attr : idx for idx, attr in enumerate(self.attrs)}
@@ -143,6 +144,7 @@ class CompositionDataset(Dataset):
             self.pairs = self.full_pairs
 
         self.all_pair2idx = {pair: idx for idx, pair in enumerate(self.pairs)}
+        
 
         if train_only and self.phase == 'train':
             print('Using only train pairs')
@@ -150,6 +152,7 @@ class CompositionDataset(Dataset):
         else:
             print('Using all pairs')
             self.pair2idx = {pair : idx for idx, pair in enumerate(self.pairs)}
+        """
         
         if self.phase == 'train':
             self.data = self.train_data
@@ -157,22 +160,21 @@ class CompositionDataset(Dataset):
             self.data = self.test_data
         elif self.phase == 'all':
             print('Using all data')
-            self.data = self.train_data + self.val_data + self.test_data
+            self.data = self.train_data + self.test_data
         else:
             raise ValueError('Invalid training phase')
         
-        self.all_data = self.train_data + self.val_data + self.test_data
+        self.all_data = self.train_data + self.test_data
         print('Dataset loaded')
-        print('Train pairs: {}, Validation pairs: {}, Test Pairs: {}'.format(
-            len(self.train_pairs), len(self.val_pairs), len(self.test_pairs)))
-        print('Train images: {}, Validation images: {}, Test images: {}'.format(
-            len(self.train_data), len(self.val_data), len(self.test_data)))
+        print('Train pairs: {}, Test Pairs: {}'.format(
+            len(self.train_pairs), len(self.test_pairs)))
+        print('Train images: {}, Test images: {}'.format(
+            len(self.train_data), len(self.test_data)))
         
         if subset:
             ind = np.arange(len(self.data))
             ind = ind[::len(ind) // 1000]
             self.data = [self.data[i] for i in ind]
-
 
         # Keeping a list of all pairs that occur with each object
         self.obj_affordance = {}
@@ -205,7 +207,7 @@ class CompositionDataset(Dataset):
 
     def parse_split(self):
         '''
-        Helper function to read splits of object atrribute pair
+        Helper function to read splits of object atrribute pair.
         Returns
             all_attrs: List of all attributes
             all_objs: List of all objects
@@ -214,27 +216,14 @@ class CompositionDataset(Dataset):
             vl_pairs: List of validation pairs of attrs and objs
             ts_pairs: List of test pairs of attrs and objs
         '''
-        # Encode `BENGALI` using clip
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        model, preprocess = clip.load("ViT-B/32", device=device)
-
-        text = clip.tokenize(["BENGALI"]).to(device)
-        
-        with torch.no_grad():
-            bengali_clip = model.encode_text(text)
-            
-        bengali_clip = bengali_clip.cpu().numpy()
-        
-        # Set phosc language version
-        set_phos_version('ben')
-        
         def parse_pairs(pair_list):
             with open(pair_list, 'r') as f:
                 pairs = f.read().strip().split('\n')
                 pairs = [line.split() for line in pairs]
-                pairs = [(list(bengali_clip), list(generate_label(pair[0]))) for pair in pairs]
+                pairs = [('BENGALI', pair[0]) for pair in pairs]
 
             attrs, objs = zip(*pairs)
+            
             return list(attrs), list(objs), list(pairs)
 
         tr_attrs, tr_objs, tr_pairs = parse_pairs(
@@ -245,8 +234,11 @@ class CompositionDataset(Dataset):
         )
         
         #now we compose all objs, attrs and pairs
-        all_attrs, all_objs = list(tr_attrs + ts_attrs), list(tr_objs + ts_objs)
-        all_pairs = list(tr_pairs + ts_pairs)
+        all_attrs, all_objs = sorted(
+            list(set(tr_attrs + ts_attrs))), sorted(
+                list(set(tr_objs + ts_objs))
+            )
+        all_pairs = sorted(list(set(tr_pairs + ts_pairs)))
 
         return all_attrs, all_objs, all_pairs, tr_pairs, ts_pairs
 
@@ -258,8 +250,6 @@ class CompositionDataset(Dataset):
             train_data, val_data, test_data: List of tuple of image, attrs, obj
         '''
         train_data, test_data = [], []
-        set_phos_version('ben')
-        
         with open(
             ospj(self.root, self.split, "train", f'Train_Labels_{self.split}.txt'),
             'r'
@@ -278,7 +268,8 @@ class CompositionDataset(Dataset):
             for image in images:
                 train_data.append([
                     ospj('train', str(i), image),
-                    generate_label(word)
+                    'BENGALI',
+                    word
                 ])
                 
         for i, word in enumerate(test_words):
@@ -287,7 +278,8 @@ class CompositionDataset(Dataset):
             for image in images:
                 test_data.append([
                     ospj('test', str(i + 200), image),
-                    generate_label(word)
+                    'BENGALI',
+                    word
                 ])
 
         return train_data, test_data
