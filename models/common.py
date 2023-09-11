@@ -5,6 +5,10 @@ import numpy as np
 import copy
 from scipy.stats import hmean
 
+from utils.dbe import dbe
+
+import math
+
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 class MLP(nn.Module):
@@ -380,7 +384,7 @@ class Evaluator:
 
         pairs = list(
             zip(list(attr_truth.numpy()), list(obj_truth.numpy())))
-        
+
 
         seen_ind, unseen_ind = [], []
         for i in range(len(attr_truth)):
@@ -389,7 +393,7 @@ class Evaluator:
             else:
                 unseen_ind.append(i)
 
-        
+
         seen_ind, unseen_ind = torch.LongTensor(seen_ind), torch.LongTensor(unseen_ind)
         def _process(_scores):
             # Top k pair accuracy
@@ -405,7 +409,7 @@ class Evaluator:
             seen_match = match[seen_ind]
             unseen_match = match[unseen_ind]
             ### Calculating class average accuracy
-            
+
             # local_score_dict = copy.deepcopy(self.test_pair_dict)
             # for pair_gt, pair_pred in zip(pairs, match):
             #     # print(pair_gt)
@@ -421,7 +425,7 @@ class Evaluator:
             #         seen_score.append(score)
             #     else:
             #         unseen_score.append(score)
-            
+
             seen_score, unseen_score = torch.ones(512,5), torch.ones(512,5)
 
             return attr_match, obj_match, match, seen_match, unseen_match, \
@@ -454,7 +458,7 @@ class Evaluator:
 
         # Getting difference between these scores
         unseen_score_diff = max_seen_scores - correct_scores
-
+        
         # Getting matched classes at max bias for diff
         unseen_matches = stats['closed_unseen_match'].bool()
         correct_unseen_score_diff = unseen_score_diff[unseen_matches] - 1e-4
@@ -469,6 +473,7 @@ class Evaluator:
 
         seen_match_max = float(stats['closed_seen_match'].mean())
         unseen_match_max = float(stats['closed_unseen_match'].mean())
+        
         seen_accuracy, unseen_accuracy = [], []
 
         # Go to CPU
@@ -497,6 +502,8 @@ class Evaluator:
 
         for key in stats:
             stats[key] = float(stats[key].mean())
+
+        seen_accuracy = [1 if math.isnan(seen_acc) else seen_acc for seen_acc in seen_accuracy]
 
         harmonic_mean = hmean([seen_accuracy, unseen_accuracy], axis = 0)
         max_hm = np.max(harmonic_mean)

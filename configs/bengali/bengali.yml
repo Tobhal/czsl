@@ -33,6 +33,6 @@ training:
   topk: 1
   wd: 5.0e-05
   workers: 8
-  update_features: true   # temp, should be `false`
+  update_features: false  # temp, should be `false`
   freeze_features: false
   epoch_max_margin: 15

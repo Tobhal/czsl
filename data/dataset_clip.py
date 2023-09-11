@@ -136,7 +136,6 @@ class CompositionDataset(Dataset):
         
         self.full_pairs = list(product(self.attrs,self.objs))
         
-        """
         # Clean only was here
         self.obj2idx = {obj: idx for idx, obj in enumerate(self.objs)}
         self.attr2idx = {attr : idx for idx, attr in enumerate(self.attrs)}
@@ -152,7 +151,6 @@ class CompositionDataset(Dataset):
         else:
             print('Using all pairs')
             self.pair2idx = {pair : idx for idx, pair in enumerate(self.pairs)}
-        """
         
         if self.phase == 'train':
             self.data = self.train_data
@@ -326,11 +324,13 @@ class CompositionDataset(Dataset):
             Tuple of a different attribute, object indexes
         '''
         new_attr, new_obj = self.sample_pairs[np.random.choice(
-            len(self.sample_pairs))]
+            len(self.sample_pairs)
+        )]
 
         while new_attr == attr and new_obj == obj:
             new_attr, new_obj = self.sample_pairs[np.random.choice(
-                len(self.sample_pairs))]
+                len(self.sample_pairs)
+            )]
 
         return (self.attr2idx[new_attr], self.obj2idx[new_obj])
 
@@ -414,6 +414,8 @@ class CompositionDataset(Dataset):
         '''
         Call for getting samples
         '''
+        # print('get_item', index)
+        
         index = self.sample_indices[index]
 
         image, attr, obj = self.data[index]

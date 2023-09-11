@@ -57,8 +57,6 @@ def main():
         open_world      = args.open_world
     )
     
-    exit()
-    
     trainloader = torch.utils.data.DataLoader(
         trainset,
         batch_size  = args.batch_size,
@@ -91,9 +89,7 @@ def main():
     evaluator_val = Evaluator(testset, model)
 
     print(model)
-
-    exit()
-
+    
     start_epoch = 0
     # Load checkpoint
     if args.load is not None:
@@ -114,6 +110,7 @@ def main():
     
     for epoch in tqdm(range(start_epoch, args.max_epochs + 1), desc = 'Current epoch'):
         train(epoch, image_extractor, model, trainloader, optimizer, writer)
+        
         if model.is_open and args.model=='compcos' and ((epoch+1)%args.update_feasibility_every)==0 :
             print('Updating feasibility scores')
             model.update_feasibility(epoch+1.)
@@ -132,6 +129,7 @@ def train_normal(epoch, image_extractor, model, trainloader, optimizer, writer):
 
     if image_extractor:
         image_extractor.train()
+        
     model.train()  # Let's switch to training
 
     train_loss = 0.0 
@@ -253,13 +251,15 @@ def write_log(auc=None, hm=None):
     print('Best AUC achieved is ', auc)
     print('Best HM achieved is ', hm)
 
-    with open('logs/text/log_train_cgqa_open_world.txt', 'a') as file:  # 'a' stands for 'append'
+    log_file = 'logs/text/log_train_cgqa_open_world.txt'
+
+    with open(log_file, 'a') as file:  # 'a' stands for 'append'
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')  # format datetime as string
         file.write(f'Data: {args.data_dir} | Time: {timestamp}\n')
         if auc:
-            file.write(f'Best AUC achived is: {str(auc)}\n')
+            file.write(f'Best AUC achieved is: {str(auc)}\n')
         if hm:
-            file.write(f'Best HM achived is: {str(hm)}\n')
+            file.write(f'Best HM achieved is: {str(hm)}\n')
         file.write('\n')
 
 
