@@ -20,8 +20,8 @@ def compute_cosine_similarity(names, weights, return_dict=True):
         return dict_sim
     return pairing_names, similarity.to('cpu')
 
-
 class CompCos(nn.Module):
+
     def __init__(self, dset, args):
         super(CompCos, self).__init__()
         self.args = args
@@ -62,7 +62,7 @@ class CompCos(nn.Module):
             self.objs = dset.objs
             self.possible_pairs = dset.pairs
 
-            self.validation_pairs = dset.val_pairs
+            # self.validation_pairs = dset.val_pairs
 
             self.feasibility_margin = (1-self.seen_mask).float()
             self.epoch_max_margin = self.args.epoch_max_margin
@@ -91,6 +91,7 @@ class CompCos(nn.Module):
             self.args.fc_emb = self.args.fc_emb.split(',')
         except:
             self.args.fc_emb = [self.args.fc_emb]
+            
         layers = []
         for a in self.args.fc_emb:
             a = int(a)
@@ -106,24 +107,22 @@ class CompCos(nn.Module):
 
         input_dim = args.emb_dim
         self.attr_embedder = nn.Embedding(len(dset.attrs), input_dim)
-        self.obj_embedder = nn.Embedding(len(dset.objs), input_dim)
-
+        self.obj_embedder = nn.Embedding(len(dset.objs), 195)
+        self.obj_linear = nn.Linear(195, input_dim)
+        
         # init with word embeddings
         if args.emb_init:
-            pretrained_weight = load_word_embeddings(args.emb_init, dset.attrs)
+            pretrained_weight = load_word_embeddings(args.emb_init, dset.attrs, 'attrs')
             self.attr_embedder.weight.data.copy_(pretrained_weight)
-            pretrained_weight = load_word_embeddings(args.emb_init, dset.objs)
+            
+            pretrained_weight = load_word_embeddings(args.emb_init, dset.objs, 'objs')
             self.obj_embedder.weight.data.copy_(pretrained_weight)
 
-        print()
-        print('load_word_embeddings done')
-        print(self.attr_embedder)
-        print(self.obj_embedder)
-        print()
-
+        # static inputs
         if args.static_inp:
             for param in self.attr_embedder.parameters():
                 param.requires_grad = False
+                
             for param in self.obj_embedder.parameters():
                 param.requires_grad = False
 
@@ -142,12 +141,13 @@ class CompCos(nn.Module):
 
 
     def compose(self, attrs, objs):
-        attrs, objs = self.attr_embedder(attrs), self.obj_embedder(objs)
-        inputs = torch.cat([attrs, objs], 1)
+        attrs = self.attr_embedder(attrs)
+        objs = self.obj_linear(self.obj_embedder(objs))  # apply linear transformation
+        inputs = torch.cat([attrs, objs], 1) 
         output = self.projection(inputs)
         output = F.normalize(output, dim=1)
         return output
-
+    
 
     def compute_feasibility(self):
         obj_embeddings = self.obj_embedder(torch.arange(len(self.objs)).long().to('cuda'))
@@ -269,6 +269,3 @@ class CompCos(nn.Module):
             with torch.no_grad():
                 loss, pred = self.val_forward(x)
         return loss, pred
-
-
-
