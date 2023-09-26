@@ -20,6 +20,9 @@ from utils.dbe import dbe
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 class ImageLoader:
+    """
+    Loades a image from a given path and converts it to RPG
+    """
     def __init__(self, root):
         self.root_dir = root
 
@@ -30,6 +33,8 @@ class ImageLoader:
 
 def dataset_transform(phase, norm_family = 'imagenet'):
     '''
+        Transforms a image pased on the phase
+
         Inputs
             phase: String controlling which set of transforms to use
             norm_family: String controlling which normaliztion values to use
@@ -129,18 +134,14 @@ class CompositionDataset(Dataset):
         self.feat_dim = 512 if 'resnet18' in model else 2048 # todo, unify this  with models
         self.open_world = open_world
 
-        self.attrs, self.objs, self.pairs, self.train_pairs, \
-            self.val_pairs, self.test_pairs = self.parse_split()
+        self.attrs, self.objs, self.pairs, self.train_pairs, self.val_pairs, self.test_pairs = self.parse_split()
         
         self.train_data, self.val_data, self.test_data = self.get_split_info()
-
-        dbe(self.train_data[0])
-
-        self.full_pairs = list(product(self.attrs,self.objs))
+        
+        self.full_pairs = list(product(self.attrs, self.objs))
         
         # Clean only was here
         self.obj2idx = {obj: idx for idx, obj in enumerate(self.objs)}
-
         self.attr2idx = {attr : idx for idx, attr in enumerate(self.attrs)}
         if self.open_world:
             self.pairs = self.full_pairs
@@ -154,6 +155,7 @@ class CompositionDataset(Dataset):
             print('Using all pairs')
             self.pair2idx = {pair : idx for idx, pair in enumerate(self.pairs)}
         
+        # Setting data to phase
         if self.phase == 'train':
             self.data = self.train_data
         elif self.phase == 'val':
@@ -173,8 +175,6 @@ class CompositionDataset(Dataset):
         print('Train images: {}, Validation images: {}, Test images: {}'.format(
             len(self.train_data), len(self.val_data), len(self.test_data)))
         
-        dbe(self.data)
-
         if subset:
             ind = np.arange(len(self.data))
             ind = ind[::len(ind) // 1000]
@@ -192,8 +192,6 @@ class CompositionDataset(Dataset):
             self.train_obj_affordance[_obj] = list(set(candidates))
 
         self.sample_indices = list(range(len(self.data)))
-
-        dbe(self.sample_indices)
 
         self.sample_pairs = self.train_pairs
 
@@ -214,7 +212,19 @@ class CompositionDataset(Dataset):
             print('{} activations loaded'.format(len(self.activations)))
 
 
+
     def parse_split(self):
+        """
+        TODO: Rework
+
+        This should return the State (the word 'bengali') and the bengali word. The phos calculations will happen later.
+        Do this for the train, test and validation data csv files. Do not sort the list so the data can be found later using the index.
+
+        example of a pair: ['Bengali', 'চান্দুরি']
+
+        NOTE: This is sorted, this can liead to problems?
+        """
+
         '''
         Helper function to read splits of object atrribute pair
         Returns
@@ -228,25 +238,36 @@ class CompositionDataset(Dataset):
         def parse_pairs(pair_list):
             '''
             Helper function to parse each phase to object attrribute vectors
+
+            col[0] = State
+            col[1] = Object
+
             Inputs
                 pair_list: path to textfile
             '''
             with open(pair_list, 'r') as f:
-                pairs = f.read().strip().split('\n')
-                pairs = [line.split() for line in pairs]
+                lines = f.read().strip().split('\n')
+                pairs = lines[1:]   # Skip first line (headers)
+                pairs = [line.split(',') for line in pairs]
+                pairs = [['Bengali', line[1]] for line in pairs]
                 pairs = list(map(tuple, pairs))
 
             attrs, objs = zip(*pairs)
             return attrs, objs, pairs
 
+        # Train
         tr_attrs, tr_objs, tr_pairs = parse_pairs(
-            ospj(self.root, self.split, 'train_pairs.txt')
+            ospj(self.root, self.split, 'train', 'data.csv')
         )
+
+        # Validation
         vl_attrs, vl_objs, vl_pairs = parse_pairs(
-            ospj(self.root, self.split, 'val_pairs.txt')
+            ospj(self.root, self.split, 'val', 'data.csv')
         )
+
+        # Test
         ts_attrs, ts_objs, ts_pairs = parse_pairs(
-            ospj(self.root, self.split, 'test_pairs.txt')
+            ospj(self.root, self.split, 'test', 'data.csv')
         )
         
         #now we compose all objs, attrs and pairs
@@ -254,11 +275,18 @@ class CompositionDataset(Dataset):
             list(set(tr_attrs + vl_attrs + ts_attrs))), sorted(
                 list(set(tr_objs + vl_objs + ts_objs))
             )
+        
         all_pairs = sorted(list(set(tr_pairs + vl_pairs + ts_pairs)))
 
         return all_attrs, all_objs, all_pairs, tr_pairs, vl_pairs, ts_pairs
 
     def get_split_info(self):
+        """
+        TODO: Rework
+
+        Read all images from each phase, then append add them to the list.
+        Each element should be formated like this: [image_paht, state, object]. Where state is the word (bengali), and object is the bengali word.
+        """
         '''
         Helper method to read image, attrs, objs samples
 

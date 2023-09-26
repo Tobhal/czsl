@@ -15,7 +15,8 @@ from utils.utils import get_norm_values, chunks
 from models.image_extractor import get_image_extractor
 from itertools import product
 
-from utils.dbe import dbe
+import clip
+from utils.phoscnet.phos_generator import set_phos_version, generate_label 
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -105,8 +106,8 @@ class CompositionDataset(Dataset):
     '''
     def __init__(
         self,
-        root,
-        phase,
+        root,   # Root dir for data
+        phase,  # Train or test phace
         split = 'compositional-split',
         model = 'resnet18',
         norm_family = 'imagenet',
@@ -116,7 +117,7 @@ class CompositionDataset(Dataset):
         update_features = False,
         return_images = False,
         train_only = False,
-        open_world=False
+        open_world = False
     ):
         self.root = root
         self.phase = phase
@@ -129,23 +130,20 @@ class CompositionDataset(Dataset):
         self.feat_dim = 512 if 'resnet18' in model else 2048 # todo, unify this  with models
         self.open_world = open_world
 
-        self.attrs, self.objs, self.pairs, self.train_pairs, \
-            self.val_pairs, self.test_pairs = self.parse_split()
+        self.attrs, self.objs, self.pairs, self.train_pairs, self.test_pairs = self.parse_split()
         
-        self.train_data, self.val_data, self.test_data = self.get_split_info()
-
-        dbe(self.train_data[0])
-
+        self.train_data, self.test_data = self.get_split_info()
+        
         self.full_pairs = list(product(self.attrs,self.objs))
         
         # Clean only was here
         self.obj2idx = {obj: idx for idx, obj in enumerate(self.objs)}
-
         self.attr2idx = {attr : idx for idx, attr in enumerate(self.attrs)}
         if self.open_world:
             self.pairs = self.full_pairs
 
         self.all_pair2idx = {pair: idx for idx, pair in enumerate(self.pairs)}
+        
 
         if train_only and self.phase == 'train':
             print('Using only train pairs')
@@ -156,30 +154,25 @@ class CompositionDataset(Dataset):
         
         if self.phase == 'train':
             self.data = self.train_data
-        elif self.phase == 'val':
-            self.data = self.val_data
         elif self.phase == 'test':
             self.data = self.test_data
         elif self.phase == 'all':
             print('Using all data')
-            self.data = self.train_data + self.val_data + self.test_data
+            self.data = self.train_data + self.test_data
         else:
             raise ValueError('Invalid training phase')
         
-        self.all_data = self.train_data + self.val_data + self.test_data
+        self.all_data = self.train_data + self.test_data
         print('Dataset loaded')
-        print('Train pairs: {}, Validation pairs: {}, Test Pairs: {}'.format(
-            len(self.train_pairs), len(self.val_pairs), len(self.test_pairs)))
-        print('Train images: {}, Validation images: {}, Test images: {}'.format(
-            len(self.train_data), len(self.val_data), len(self.test_data)))
+        print('Train pairs: {}, Test Pairs: {}'.format(
+            len(self.train_pairs), len(self.test_pairs)))
+        print('Train images: {}, Test images: {}'.format(
+            len(self.train_data), len(self.test_data)))
         
-        dbe(self.data)
-
         if subset:
             ind = np.arange(len(self.data))
             ind = ind[::len(ind) // 1000]
             self.data = [self.data[i] for i in ind]
-
 
         # Keeping a list of all pairs that occur with each object
         self.obj_affordance = {}
@@ -192,9 +185,6 @@ class CompositionDataset(Dataset):
             self.train_obj_affordance[_obj] = list(set(candidates))
 
         self.sample_indices = list(range(len(self.data)))
-
-        dbe(self.sample_indices)
-
         self.sample_pairs = self.train_pairs
 
         # Load based on what to output
@@ -213,10 +203,9 @@ class CompositionDataset(Dataset):
             self.feat_dim = activation_data['features'].size(1)
             print('{} activations loaded'.format(len(self.activations)))
 
-
     def parse_split(self):
         '''
-        Helper function to read splits of object atrribute pair
+        Helper function to read splits of object atrribute pair.
         Returns
             all_attrs: List of all attributes
             all_objs: List of all objects
@@ -226,37 +215,30 @@ class CompositionDataset(Dataset):
             ts_pairs: List of test pairs of attrs and objs
         '''
         def parse_pairs(pair_list):
-            '''
-            Helper function to parse each phase to object attrribute vectors
-            Inputs
-                pair_list: path to textfile
-            '''
             with open(pair_list, 'r') as f:
                 pairs = f.read().strip().split('\n')
                 pairs = [line.split() for line in pairs]
-                pairs = list(map(tuple, pairs))
+                pairs = [('BENGALI', pair[0]) for pair in pairs]
 
             attrs, objs = zip(*pairs)
-            return attrs, objs, pairs
+            
+            return list(attrs), list(objs), list(pairs)
 
         tr_attrs, tr_objs, tr_pairs = parse_pairs(
-            ospj(self.root, self.split, 'train_pairs.txt')
-        )
-        vl_attrs, vl_objs, vl_pairs = parse_pairs(
-            ospj(self.root, self.split, 'val_pairs.txt')
+            ospj(self.root, self.split, "train", f'Train_Labels_{self.split}.txt')
         )
         ts_attrs, ts_objs, ts_pairs = parse_pairs(
-            ospj(self.root, self.split, 'test_pairs.txt')
+            ospj(self.root, self.split, "test", f'Test_Labels_{self.split}.txt')
         )
         
         #now we compose all objs, attrs and pairs
         all_attrs, all_objs = sorted(
-            list(set(tr_attrs + vl_attrs + ts_attrs))), sorted(
-                list(set(tr_objs + vl_objs + ts_objs))
+            list(set(tr_attrs + ts_attrs))), sorted(
+                list(set(tr_objs + ts_objs))
             )
-        all_pairs = sorted(list(set(tr_pairs + vl_pairs + ts_pairs)))
+        all_pairs = sorted(list(set(tr_pairs + ts_pairs)))
 
-        return all_attrs, all_objs, all_pairs, tr_pairs, vl_pairs, ts_pairs
+        return all_attrs, all_objs, all_pairs, tr_pairs, ts_pairs
 
     def get_split_info(self):
         '''
@@ -265,27 +247,51 @@ class CompositionDataset(Dataset):
         Returns
             train_data, val_data, test_data: List of tuple of image, attrs, obj
         '''
-        data = torch.load(ospj(self.root, 'metadata_{}.t7'.format(self.split)))
+        # TODO: Here there are things that I can change
+        
+        """
+        TODO: Data looks like this:
+        - Visual embeding: The image ran trough the PHOSCnet model
+        - State: Clip representation of the word `Bengali`
+        - Object: The string returend from `utils/gen_clip_text.py`
+        """
+        train_data, test_data = [], []
 
-        train_data, val_data, test_data = [], [], []
 
-        for instance in data:
-            image, attr, obj, settype = instance['image'], instance['attr'], \
-                instance['obj'], instance['set']
-            curr_data = [image, attr, obj]
+        with open(
+            ospj(self.root, self.split, "train", f'Train_Labels_{self.split}.txt'),
+            'r'
+        ) as f:
+            train_words = f.read().strip().split('\n')
+            
+        with open(
+            ospj(self.root, self.split, "test", f'Test_Labels_{self.split}.txt'),
+            'r'
+        ) as f:
+            test_words = f.read().strip().split('\n')
+        
+        # TODO: Make this respect the current dataloader phace: `train` or `test`, altrerevively also `validation`
+        for i, word in enumerate(train_words):
+            images = os.listdir(ospj(self.root, self.split, 'train', str(i)))
+            
+            for image in images:
+                train_data.append([
+                    ospj('train', str(i), image),
+                    'BENGALI',
+                    word
+                ])
+                
+        for i, word in enumerate(test_words):
+            images = os.listdir(ospj(self.root, self.split, 'test', str(i + 200)))
+            
+            for image in images:
+                test_data.append([
+                    ospj('test', str(i + 200), image),
+                    'BENGALI',
+                    word
+                ])
 
-            if attr == 'NA' or (attr, obj) not in self.pairs or settype == 'NA':
-                # Skip incomplete pairs, unknown pairs and unknown set
-                continue
-
-            if settype == 'train':
-                train_data.append(curr_data)
-            elif settype == 'val':
-                val_data.append(curr_data)
-            else:
-                test_data.append(curr_data)
-
-        return train_data, val_data, test_data
+        return train_data, test_data
 
     def get_dict_data(self, data, pairs):
         data_dict = {}
@@ -295,7 +301,7 @@ class CompositionDataset(Dataset):
         for current in data:
             image, attr, obj = current
             data_dict[(attr, obj)].append(image)
-        
+
         return data_dict
 
 
@@ -315,8 +321,8 @@ class CompositionDataset(Dataset):
             n_pairs, len(self.train_pairs)))
 
         self.sample_indices = [ i for i in range(len(self.data))
-            if (self.data[i][1], self.data[i][2]) in self.sample_pairs
-        ]
+                                if (self.data[i][1], self.data[i][2]) in self.sample_pairs
+                                ]
         print('Using {} images out of {} images right now'.format(
             len(self.sample_indices), len(self.data)))
 
@@ -329,12 +335,14 @@ class CompositionDataset(Dataset):
             Tuple of a different attribute, object indexes
         '''
         new_attr, new_obj = self.sample_pairs[np.random.choice(
-            len(self.sample_pairs))]
+            len(self.sample_pairs)
+        )]
 
         while new_attr == attr and new_obj == obj:
             new_attr, new_obj = self.sample_pairs[np.random.choice(
-            len(self.sample_pairs))]
-        
+                len(self.sample_pairs)
+            )]
+
         return (self.attr2idx[new_attr], self.obj2idx[new_obj])
 
     def sample_affordance(self, attr, obj):
@@ -346,10 +354,10 @@ class CompositionDataset(Dataset):
             Idx of a different attribute for the same object
         '''
         new_attr = np.random.choice(self.obj_affordance[obj])
-        
+
         while new_attr == attr:
             new_attr = np.random.choice(self.obj_affordance[obj])
-        
+
         return self.attr2idx[new_attr]
 
     def sample_train_affordance(self, attr, obj):
@@ -361,10 +369,10 @@ class CompositionDataset(Dataset):
             Idx of a different attribute for the same object from the training pairs
         '''
         new_attr = np.random.choice(self.train_obj_affordance[obj])
-        
+
         while new_attr == attr:
             new_attr = np.random.choice(self.train_obj_affordance[obj])
-        
+
         return self.attr2idx[new_attr]
 
     def generate_features(self, out_file, model):
@@ -374,30 +382,40 @@ class CompositionDataset(Dataset):
             model: String of extraction model
         '''
         # data = self.all_data
-        data = ospj(self.root,'images')
+        data = ospj(self.root, self.split)
         files_before = glob(ospj(data, '**', '*.jpg'), recursive=True)
+
         files_all = []
         for current in files_before:
+            
             parts = current.split('/')
+            
             if "cgqa" in self.root:
                 files_all.append(parts[-1])
             else:
-                files_all.append(os.path.join(parts[-2],parts[-1]))
+                files_all.append(os.path.join(parts[-3], parts[-2],parts[-1]))
+            
         transform = dataset_transform('test', self.norm_family)
         feat_extractor = get_image_extractor(arch = model).eval()
         feat_extractor = feat_extractor.to(device)
-
-        image_feats = []
-        image_files = []
+        
+        image_feats, image_files = [], []
         for chunk in tqdm(
-                chunks(files_all, 512), total=len(files_all) // 512, desc=f'Extracting features {model}'):
+                chunks(files_all, 512),
+                total=len(files_all) // 512,
+                desc=f'Extracting features {model}'
+        ):
 
             files = chunk
+            
             imgs = list(map(self.loader, files))
             imgs = list(map(transform, imgs))
+            
             feats = feat_extractor(torch.stack(imgs, 0).to(device))
             image_feats.append(feats.data.cpu())
+            
             image_files += files
+            
         image_feats = torch.cat(image_feats, 0)
         print('features for %d images generated' % (len(image_files)))
 
@@ -407,6 +425,8 @@ class CompositionDataset(Dataset):
         '''
         Call for getting samples
         '''
+        # print('get_item', index)
+        
         index = self.sample_indices[index]
 
         image, attr, obj = self.data[index]
@@ -453,3 +473,4 @@ class CompositionDataset(Dataset):
         Call for length
         '''
         return len(self.sample_indices)
+    

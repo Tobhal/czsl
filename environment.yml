@@ -76,4 +76,5 @@ dependencies:
     - tqdm==4.56.0
     - urllib3==1.26.3
     - werkzeug==1.0.1
+    - num2words==0.5.12
 
