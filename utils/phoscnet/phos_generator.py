@@ -1,6 +1,7 @@
 # From: https://github.com/anuj-rai-23/PHOSC-Zero-Shot-Word-Recognition/blob/main/phos_label_generator.py
 import csv
 import numpy as np
+from pathlib import Path
 
 
 # Input: CSV file name that has shape counts for each alphabet
@@ -30,14 +31,16 @@ def create_alphabet_dictionary(csv_file):
 def set_phos_version(version: str='eng'):
     global alphabet_csv, alphabet_dict, csv_num_cols, numpy_csv
 
+    root = Path('utils/phoscnet')
+
     if version == 'eng':
-        alphabet_csv = "modules/utils/Alphabet.csv"
+        alphabet_csv = root / 'Alphabet.csv'
     elif version == 'gw':
-        alphabet_csv = 'modules/utils/AlphabetGW.csv'
+        alphabet_csv = root / 'AlphabetGW.csv'
     elif version == 'nor':
-        alphabet_csv = "modules/utils/AlphabetNorwegian.csv"
+        alphabet_csv = root / 'AlphabetNorwegian.csv'
     elif version == 'ben':
-        alphabet_csv = "modules/utils/AlphabetBengali.csv"
+        alphabet_csv = root / 'AlphabetBengali.csv'
 
     alphabet_dict = create_alphabet_dictionary(alphabet_csv)
     csv_num_cols = get_number_of_columns(alphabet_csv)
@@ -96,10 +99,16 @@ def label_maker(word_txt):
 
 if __name__ == '__main__':
     set_phos_version('ben')
-    regular_phos = generate_label('অঐত')
+
+    word = 'অঐত'
+    regular_phos = generate_label(word)
     
     print(regular_phos.shape)
     # new_phos = generate_label_NOR('zz')
     
     print(regular_phos)
     print(len(regular_phos))
+
+    single_phos = word_vector(word)
+    print(single_phos)
+    print(len(single_phos))

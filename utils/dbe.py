@@ -7,6 +7,10 @@ def dbe(*args):
     var_names = Str[Str.find("(")+1:-1].split(",")
 
     for var_name, arg in zip(var_names, args):
-        print(f"{var_name.strip()} = {arg}")
-        
+        # Checking if the argument is a list
+        if isinstance(arg, list):
+            print(f"{var_name.strip()}({len(arg)}) = {arg}")
+        else:
+            print(f"{var_name.strip()} = {arg}")
+
     exit()

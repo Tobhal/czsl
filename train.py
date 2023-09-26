@@ -17,6 +17,8 @@ from datetime import datetime
 #Local imports
 from data import dataset
 from data import dataset_clip
+from data import dataset_phosc_clip
+from data import dataset_phosc_clip_new
 from models.common import Evaluator
 from utils.utils import save_args, load_args
 from utils.config_model import configure_model
@@ -40,7 +42,8 @@ def main():
     
     # Set CompositDataset
     if args.emb_init == 'clip':
-        dset = dataset_clip.CompositionDataset
+        # dset = dataset_clip.CompositionDataset
+        dset = dataset_phosc_clip_new.CompositionDataset
     else:
         dset = dataset.CompositionDataset
         
@@ -73,12 +76,15 @@ def main():
         update_features = args.update_features,
         open_world      = args.open_world
     )
+
     testloader = torch.utils.data.DataLoader(
         testset,
         batch_size  = args.test_batch_size,
         shuffle     = False,
         num_workers = args.workers
     )
+
+    exit()
 
     # Get model and optimizer
     image_extractor, model, optimizer = configure_model(args, trainset)
