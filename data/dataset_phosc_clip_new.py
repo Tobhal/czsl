@@ -134,9 +134,9 @@ class CompositionDataset(Dataset):
         self.feat_dim = 512 if 'resnet18' in model else 2048 # todo, unify this  with models
         self.open_world = open_world
 
-        self.attrs, self.objs, self.pairs, self.train_pairs, self.val_pairs, self.test_pairs = self.parse_split()
+        self.attrs, self.objs, self.pairs, self.train_pairs, self.val_pairs, self.test_pairs, self.train_data, self.val_data, self.test_data = self.parse_split()
         
-        self.train_data, self.val_data, self.test_data = self.get_split_info()
+        # self.train_data, self.val_data, self.test_data = self.get_split_info()
         
         self.full_pairs = list(product(self.attrs, self.objs))
         
@@ -167,7 +167,7 @@ class CompositionDataset(Dataset):
             self.data = self.train_data + self.val_data + self.test_data
         else:
             raise ValueError('Invalid training phase')
-        
+
         self.all_data = self.train_data + self.val_data + self.test_data
         print('Dataset loaded')
         print('Train pairs: {}, Validation pairs: {}, Test Pairs: {}'.format(
@@ -235,39 +235,42 @@ class CompositionDataset(Dataset):
             vl_pairs: List of validation pairs of attrs and objs
             ts_pairs: List of test pairs of attrs and objs
         '''
-        def parse_pairs(pair_list):
+        def parse_pairs(pair_list, phase):
             '''
             Helper function to parse each phase to object attrribute vectors
-
-            col[0] = State
-            col[1] = Object
 
             Inputs
                 pair_list: path to textfile
             '''
-            with open(pair_list, 'r') as f:
+            with open(ospj(pair_list, phase, 'data.csv'), 'r') as f:
                 lines = f.read().strip().split('\n')
                 pairs = lines[1:]   # Skip first line (headers)
                 pairs = [line.split(',') for line in pairs]
+
+                data = [[ospj(self.root, self.split, phase, line[0]), 'Bengali', line[1]] for line in pairs]
+
                 pairs = [['Bengali', line[1]] for line in pairs]
                 pairs = list(map(tuple, pairs))
 
             attrs, objs = zip(*pairs)
-            return attrs, objs, pairs
+            return attrs, objs, pairs, data
 
         # Train
-        tr_attrs, tr_objs, tr_pairs = parse_pairs(
-            ospj(self.root, self.split, 'train', 'data.csv')
+        tr_attrs, tr_objs, tr_pairs, tr_data = parse_pairs(
+            ospj(self.root, self.split),
+            'train'
         )
 
         # Validation
-        vl_attrs, vl_objs, vl_pairs = parse_pairs(
-            ospj(self.root, self.split, 'val', 'data.csv')
+        vl_attrs, vl_objs, vl_pairs, vl_data = parse_pairs(
+            ospj(self.root, self.split),
+            'val'
         )
 
         # Test
-        ts_attrs, ts_objs, ts_pairs = parse_pairs(
-            ospj(self.root, self.split, 'test', 'data.csv')
+        ts_attrs, ts_objs, ts_pairs, ts_data = parse_pairs(
+            ospj(self.root, self.split),
+            'test'
         )
         
         #now we compose all objs, attrs and pairs
@@ -278,7 +281,7 @@ class CompositionDataset(Dataset):
         
         all_pairs = sorted(list(set(tr_pairs + vl_pairs + ts_pairs)))
 
-        return all_attrs, all_objs, all_pairs, tr_pairs, vl_pairs, ts_pairs
+        return all_attrs, all_objs, all_pairs, tr_pairs, vl_pairs, ts_pairs, tr_data, vl_data, ts_data
 
     def get_split_info(self):
         """
@@ -293,25 +296,9 @@ class CompositionDataset(Dataset):
         Returns
             train_data, val_data, test_data: List of tuple of image, attrs, obj
         '''
-        data = torch.load(ospj(self.root, 'metadata_{}.t7'.format(self.split)))
-
         train_data, val_data, test_data = [], [], []
 
-        for instance in data:
-            image, attr, obj, settype = instance['image'], instance['attr'], \
-                instance['obj'], instance['set']
-            curr_data = [image, attr, obj]
 
-            if attr == 'NA' or (attr, obj) not in self.pairs or settype == 'NA':
-                # Skip incomplete pairs, unknown pairs and unknown set
-                continue
-
-            if settype == 'train':
-                train_data.append(curr_data)
-            elif settype == 'val':
-                val_data.append(curr_data)
-            else:
-                test_data.append(curr_data)
 
         return train_data, val_data, test_data
 

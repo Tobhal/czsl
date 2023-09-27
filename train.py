@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 import torch.backends.cudnn as cudnn
+
 cudnn.benchmark = True
 
 # Python imports
@@ -14,7 +15,7 @@ from os.path import join as ospj
 import csv
 from datetime import datetime
 
-#Local imports
+# Local imports
 from data import dataset
 from data import dataset_clip
 from data import dataset_phosc_clip
@@ -29,6 +30,7 @@ best_hm = 0
 compose_switch = True
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
+
 def main():
     # Get arguments and start logging
     args = parser.parse_args()
@@ -36,52 +38,52 @@ def main():
     logpath = os.path.join(args.cv_dir, args.name)
     os.makedirs(logpath, exist_ok=True)
     save_args(args, logpath, args.config)
-    writer = SummaryWriter(log_dir = logpath, flush_secs = 30)
+    writer = SummaryWriter(log_dir=logpath, flush_secs=30)
 
     print(args.emb_init)
-    
+
     # Set CompositDataset
     if args.emb_init == 'clip':
         # dset = dataset_clip.CompositionDataset
         dset = dataset_phosc_clip_new.CompositionDataset
     else:
         dset = dataset.CompositionDataset
-        
+
     # Get dataset
     trainset = dset(
-        root            = os.path.join(DATA_FOLDER,args.data_dir),
-        phase           = 'train',
-        split           = args.splitname,
-        model           = args.image_extractor,
-        num_negs        = args.num_negs,
-        pair_dropout    = args.pair_dropout,
-        update_features = args.update_features,
-        train_only      = args.train_only,
-        open_world      = args.open_world
+        root=os.path.join(DATA_FOLDER, args.data_dir),
+        phase='train',
+        split=args.splitname,
+        model=args.image_extractor,
+        num_negs=args.num_negs,
+        pair_dropout=args.pair_dropout,
+        update_features=args.update_features,
+        train_only=args.train_only,
+        open_world=args.open_world
     )
-    
+
     trainloader = torch.utils.data.DataLoader(
         trainset,
-        batch_size  = args.batch_size,
-        shuffle     = True,
-        num_workers = args.workers
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=args.workers
     )
-    
+
     testset = dset(
-        root            = os.path.join(DATA_FOLDER,args.data_dir),
-        phase           = args.test_set,
-        split           = args.splitname,
-        model           = args.image_extractor,
-        subset          = args.subset,
-        update_features = args.update_features,
-        open_world      = args.open_world
+        root=os.path.join(DATA_FOLDER, args.data_dir),
+        phase=args.test_set,
+        split=args.splitname,
+        model=args.image_extractor,
+        subset=args.subset,
+        update_features=args.update_features,
+        open_world=args.open_world
     )
 
     testloader = torch.utils.data.DataLoader(
         testset,
-        batch_size  = args.test_batch_size,
-        shuffle     = False,
-        num_workers = args.workers
+        batch_size=args.test_batch_size,
+        shuffle=False,
+        num_workers=args.workers
     )
 
     exit()
@@ -95,7 +97,7 @@ def main():
     evaluator_val = Evaluator(testset, model)
 
     print(model)
-    
+
     start_epoch = 0
     # Load checkpoint
     if args.load is not None:
@@ -113,16 +115,16 @@ def main():
         model.load_state_dict(checkpoint['net'])
         start_epoch = checkpoint['epoch']
         print('Loaded model from ', args.load)
-    
-    for epoch in tqdm(range(start_epoch, args.max_epochs + 1), desc = 'Current epoch'):
+
+    for epoch in tqdm(range(start_epoch, args.max_epochs + 1), desc='Current epoch'):
         train(epoch, image_extractor, model, trainloader, optimizer, writer)
-        
-        if model.is_open and args.model=='compcos' and ((epoch+1)%args.update_feasibility_every)==0 :
+
+        if model.is_open and args.model == 'compcos' and ((epoch + 1) % args.update_feasibility_every) == 0:
             print('Updating feasibility scores')
-            model.update_feasibility(epoch+1.)
+            model.update_feasibility(epoch + 1.)
 
         if epoch % args.eval_val_every == 0:
-            with torch.no_grad(): # todo: might not be needed
+            with torch.no_grad():  # todo: might not be needed
                 test(epoch, image_extractor, model, testloader, evaluator_val, writer, args, logpath)
 
     write_log(best_auc, best_hm)
@@ -135,25 +137,25 @@ def train_normal(epoch, image_extractor, model, trainloader, optimizer, writer):
 
     if image_extractor:
         image_extractor.train()
-        
+
     model.train()  # Let's switch to training
 
-    train_loss = 0.0 
+    train_loss = 0.0
     for idx, data in tqdm(enumerate(trainloader), total=len(trainloader), desc='Training'):
         data = [d.to(device) for d in data]
 
         if image_extractor:
             data[0] = image_extractor(data[0])
-        
+
         loss, _ = model(data)
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-    
+
         train_loss += loss.item()
 
-    train_loss = train_loss/len(trainloader)
+    train_loss = train_loss / len(trainloader)
     writer.add_scalar('Loss/train_total', train_loss, epoch)
     print('Epoch: {}| Loss: {}'.format(epoch, round(train_loss, 2)))
 
