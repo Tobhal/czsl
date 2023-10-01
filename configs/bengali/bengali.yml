@@ -6,6 +6,7 @@ dataset:
   dataset: BengaliWords
   splitname: Fold0_use
   open_world: true
+  pretrained_weights: pretrained_model/phosc/epochs.pt
 model_params:
   model: compcos
   dropout: true
@@ -19,7 +20,10 @@ model_params:
   train_only: false
   static_inp: false
 training:
-  batch_size: 128
+  # batch_size: 128
+  # test_batch_size: 64
+  batch_size: 1       # For testing
+  test_batch_size: 1  # For testing
   load:
   lr: 5.0e-05
   lrg: 0.001
@@ -28,7 +32,6 @@ training:
   max_epochs: 300
   norm_family: imagenet
   save_every: 10000
-  test_batch_size: 64
   test_set: val
   topk: 1
   wd: 5.0e-05
@@ -36,3 +39,14 @@ training:
   update_features: false  # temp, should be `false`
   freeze_features: false
   epoch_max_margin: 15
+phoscnet: 
+  model_name: ResNet18Phosc
+  phos_size: 195
+  phoc_size: 1120
+  phos_layers: 1
+  phoc_layers: 1
+  dropout: 0.5
+  image_resize_x: 1000
+  image_resize_y: 800
+  language_name: Bengali
+  phosc_version: ben

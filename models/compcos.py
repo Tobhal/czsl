@@ -4,6 +4,8 @@ import torch.nn.functional as F
 from .word_embedding import load_word_embeddings
 from .common import MLP
 
+from utils.dbe import dbe
+
 from itertools import product
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -250,6 +252,7 @@ class CompCos(nn.Module):
 
     def train_forward_closed(self, x):
         img, attrs, objs, pairs = x[0], x[1], x[2], x[3]
+
         img_feats = self.image_embedder(img)
 
         pair_embed = self.compose(self.train_attrs, self.train_objs).permute(1, 0)

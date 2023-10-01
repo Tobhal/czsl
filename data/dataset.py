@@ -134,8 +134,6 @@ class CompositionDataset(Dataset):
         
         self.train_data, self.val_data, self.test_data = self.get_split_info()
 
-        dbe(self.train_data[0])
-
         self.full_pairs = list(product(self.attrs,self.objs))
         
         # Clean only was here
@@ -173,8 +171,6 @@ class CompositionDataset(Dataset):
         print('Train images: {}, Validation images: {}, Test images: {}'.format(
             len(self.train_data), len(self.val_data), len(self.test_data)))
         
-        dbe(self.data)
-
         if subset:
             ind = np.arange(len(self.data))
             ind = ind[::len(ind) // 1000]
@@ -192,8 +188,6 @@ class CompositionDataset(Dataset):
             self.train_obj_affordance[_obj] = list(set(candidates))
 
         self.sample_indices = list(range(len(self.data)))
-
-        dbe(self.sample_indices)
 
         self.sample_pairs = self.train_pairs
 

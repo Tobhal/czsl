@@ -2,6 +2,7 @@
 import numpy as np
 from tqdm import tqdm
 from PIL import Image
+import clip
 import os
 import random
 from os.path import join as ospj
@@ -15,7 +16,16 @@ from utils.utils import get_norm_values, chunks
 from models.image_extractor import get_image_extractor
 from itertools import product
 
+# Phosc
+from modules.utils import generate_phos_vector, generate_phoc_vector, set_phos_version, set_phoc_version, gen_shape_description
+
 from utils.dbe import dbe
+
+from num2words import num2words
+
+# Typehinting
+from typing import Union
+from os import PathLike
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -23,10 +33,10 @@ class ImageLoader:
     """
     Loades a image from a given path and converts it to RPG
     """
-    def __init__(self, root):
+    def __init__(self, root: PathLike):
         self.root_dir = root
 
-    def __call__(self, img):
+    def __call__(self, img: str):
         img = Image.open(ospj(self.root_dir,img)).convert('RGB') #We don't want alpha
         return img
 
@@ -97,7 +107,6 @@ def filter_data(all_data, pairs_gt, topk = 5):
     return data, sorted(list(set(pairs))), sorted(list(set(attr))), sorted(list(set(obj)))
 
 # Dataset class now
-
 class CompositionDataset(Dataset):
     '''
     Inputs
@@ -121,7 +130,9 @@ class CompositionDataset(Dataset):
         update_features = False,
         return_images = False,
         train_only = False,
-        open_world=False
+        open_world=False,
+        phosc_transorm=None,
+        **args
     ):
         self.root = root
         self.phase = phase
@@ -133,10 +144,19 @@ class CompositionDataset(Dataset):
         self.update_features = update_features
         self.feat_dim = 512 if 'resnet18' in model else 2048 # todo, unify this  with models
         self.open_world = open_world
+        self.phosc_transorm = phosc_transorm
+
+        self.args = args['args']
+
+        # Make a clip representation of the language word that is used in the dataset
+        self.clip_model, self.clip_transform = clip.load('ViT-B/32')
+        self.clip_language_text = clip.tokenize(self.args.language_name)
+
+        # Sett phos and phoc language
+        set_phos_version(self.args.phosc_version)
+        set_phoc_version(self.args.phosc_version)
 
         self.attrs, self.objs, self.pairs, self.train_pairs, self.val_pairs, self.test_pairs, self.train_data, self.val_data, self.test_data = self.parse_split()
-        
-        # self.train_data, self.val_data, self.test_data = self.get_split_info()
         
         self.full_pairs = list(product(self.attrs, self.objs))
         
@@ -171,15 +191,16 @@ class CompositionDataset(Dataset):
         self.all_data = self.train_data + self.val_data + self.test_data
         print('Dataset loaded')
         print('Train pairs: {}, Validation pairs: {}, Test Pairs: {}'.format(
-            len(self.train_pairs), len(self.val_pairs), len(self.test_pairs)))
+            len(self.train_pairs), len(self.val_pairs), len(self.test_pairs))
+        )
         print('Train images: {}, Validation images: {}, Test images: {}'.format(
-            len(self.train_data), len(self.val_data), len(self.test_data)))
+            len(self.train_data), len(self.val_data), len(self.test_data))
+        )
         
         if subset:
             ind = np.arange(len(self.data))
             ind = ind[::len(ind) // 1000]
             self.data = [self.data[i] for i in ind]
-
 
         # Keeping a list of all pairs that occur with each object
         self.obj_affordance = {}
@@ -197,18 +218,26 @@ class CompositionDataset(Dataset):
 
         # Load based on what to output
         self.transform = dataset_transform(self.phase, self.norm_family)
-        self.loader = ImageLoader(ospj(self.root, 'images'))
+
+        self.loader = ImageLoader(ospj(self.root, self.args.splitname))
+
         if not self.update_features:
-            feat_file = ospj(root, model+'_featurers.t7')
+            feat_file = ospj(root, f'{model}_{self.args.splitname}_featurers.t7')
             print(f'Using {model} and feature file {feat_file}')
+
             if not os.path.exists(feat_file):
                 with torch.no_grad():
                     self.generate_features(feat_file, model)
+
             self.phase = phase
             activation_data = torch.load(feat_file)
+
             self.activations = dict(
-                zip(activation_data['files'], activation_data['features']))
+                zip(activation_data['files'], activation_data['features'])
+            )
+
             self.feat_dim = activation_data['features'].size(1)
+
             print('{} activations loaded'.format(len(self.activations)))
 
 
@@ -235,7 +264,7 @@ class CompositionDataset(Dataset):
             vl_pairs: List of validation pairs of attrs and objs
             ts_pairs: List of test pairs of attrs and objs
         '''
-        def parse_pairs(pair_list, phase):
+        def parse_pairs(pair_list: Union[str, PathLike], phase: str):
             '''
             Helper function to parse each phase to object attrribute vectors
 
@@ -247,12 +276,23 @@ class CompositionDataset(Dataset):
                 pairs = lines[1:]   # Skip first line (headers)
                 pairs = [line.split(',') for line in pairs]
 
-                data = [[ospj(self.root, self.split, phase, line[0]), 'Bengali', line[1]] for line in pairs]
+                data = []
 
-                pairs = [['Bengali', line[1]] for line in pairs]
+                for image, word in tqdm(pairs, desc=f'Prepearing pairs, {phase}'):
+                    data.append([
+                        # Image path
+                        ospj(phase, image),
+                        # Attrs
+                        self.args.language_name,
+                        # Obj
+                        word
+                    ])
+
+                pairs = [[self.args.language_name, line[1]] for line in pairs]
                 pairs = list(map(tuple, pairs))
 
             attrs, objs = zip(*pairs)
+
             return attrs, objs, pairs, data
 
         # Train
@@ -283,24 +323,6 @@ class CompositionDataset(Dataset):
 
         return all_attrs, all_objs, all_pairs, tr_pairs, vl_pairs, ts_pairs, tr_data, vl_data, ts_data
 
-    def get_split_info(self):
-        """
-        TODO: Rework
-
-        Read all images from each phase, then append add them to the list.
-        Each element should be formated like this: [image_paht, state, object]. Where state is the word (bengali), and object is the bengali word.
-        """
-        '''
-        Helper method to read image, attrs, objs samples
-
-        Returns
-            train_data, val_data, test_data: List of tuple of image, attrs, obj
-        '''
-        train_data, val_data, test_data = [], [], []
-
-
-
-        return train_data, val_data, test_data
 
     def get_dict_data(self, data, pairs):
         data_dict = {}
@@ -389,8 +411,10 @@ class CompositionDataset(Dataset):
             model: String of extraction model
         '''
         # data = self.all_data
-        data = ospj(self.root,'images')
+        data = ospj(self.root, self.args.splitname)
+
         files_before = glob(ospj(data, '**', '*.jpg'), recursive=True)
+
         files_all = []
         for current in files_before:
             parts = current.split('/')
@@ -398,6 +422,7 @@ class CompositionDataset(Dataset):
                 files_all.append(parts[-1])
             else:
                 files_all.append(os.path.join(parts[-2],parts[-1]))
+
         transform = dataset_transform('test', self.norm_family)
         feat_extractor = get_image_extractor(arch = model).eval()
         feat_extractor = feat_extractor.to(device)
@@ -405,14 +430,15 @@ class CompositionDataset(Dataset):
         image_feats = []
         image_files = []
         for chunk in tqdm(
-                chunks(files_all, 512), total=len(files_all) // 512, desc=f'Extracting features {model}'):
-
+                chunks(files_all, 512), total=len(files_all) // 512, desc=f'Extracting features {model}'
+            ):
             files = chunk
             imgs = list(map(self.loader, files))
             imgs = list(map(transform, imgs))
             feats = feat_extractor(torch.stack(imgs, 0).to(device))
             image_feats.append(feats.data.cpu())
             image_files += files
+
         image_feats = torch.cat(image_feats, 0)
         print('features for %d images generated' % (len(image_files)))
 
@@ -426,6 +452,16 @@ class CompositionDataset(Dataset):
 
         image, attr, obj = self.data[index]
 
+        # Convert image to Phosc representation
+        # image = Image.open(image_path)
+
+        # if self.phosc_transorm:
+        #     image = self.phosc_transorm(image)
+
+        # If images need to be resized
+        # image_resize = (self.args.image_resize_x, self.args.image_resize_y)
+        # image.thumbnail(image_resize, Image.ANTIALIAS)
+
         # Decide what to output
         if not self.update_features:
             img = self.activations[image]
@@ -433,8 +469,11 @@ class CompositionDataset(Dataset):
             img = self.loader(image)
             img = self.transform(img)
 
-        data = [img, self.attr2idx[attr], self.obj2idx[obj], self.pair2idx[(attr, obj)]]
-        
+        d_attr = self.clip_language_text
+        d_obj = gen_shape_description(obj)
+
+        data = [img, d_attr, d_obj, (d_attr, d_obj)]
+
         if self.phase == 'train':
             all_neg_attrs = []
             all_neg_objs = []
@@ -446,6 +485,8 @@ class CompositionDataset(Dataset):
 
             neg_attr, neg_obj = torch.LongTensor(all_neg_attrs), torch.LongTensor(all_neg_objs)
             
+            # dbe(self.train_obj_affordance)
+
             #note here
             if len(self.train_obj_affordance[obj])>1:
                   inv_attr = self.sample_train_affordance(attr, obj) # attribute for inverse regularizer
@@ -453,7 +494,6 @@ class CompositionDataset(Dataset):
                   inv_attr = (all_neg_attrs[0]) 
 
             comm_attr = self.sample_affordance(inv_attr, obj) # attribute for commutative regularizer
-            
 
             data += [neg_attr, neg_obj, inv_attr, comm_attr]
 

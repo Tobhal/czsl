@@ -21,6 +21,8 @@ from utils.utils import load_args
 from utils.config_model import configure_model
 from flags import parser
 
+from utils.dbe import dbe
+
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 log_file = 'logs/text/log_test_cdqa_open_world.txt'
@@ -29,6 +31,7 @@ log_file = 'logs/text/log_test_cdqa_open_world.txt'
 def main():
     # Get arguments and start logging
     args = parser.parse_args()
+
     logpath = args.logpath
     config = [os.path.join(logpath, _) for _ in os.listdir(logpath) if _.endswith('yml')][0]
     load_args(config, args)

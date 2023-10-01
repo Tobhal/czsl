@@ -16,7 +16,7 @@ from models.image_extractor import get_image_extractor
 from itertools import product
 
 import clip
-from utils.phoscnet.phos_generator import set_phos_version, generate_label 
+from modules.utils import set_phos_version
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 

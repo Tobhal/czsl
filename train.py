@@ -5,6 +5,8 @@ import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 import torch.backends.cudnn as cudnn
 
+from torchvision.transforms import transforms
+
 cudnn.benchmark = True
 
 # Python imports
@@ -14,6 +16,7 @@ import os
 from os.path import join as ospj
 import csv
 from datetime import datetime
+from timm import create_model
 
 # Local imports
 from data import dataset
@@ -24,6 +27,11 @@ from models.common import Evaluator
 from utils.utils import save_args, load_args
 from utils.config_model import configure_model
 from flags import parser, DATA_FOLDER
+from utils.dbe import dbe
+
+from modules.utils.engine import zslAccuracyTest
+
+from modules import models, residualmodels
 
 best_auc = 0
 best_hm = 0
@@ -35,6 +43,7 @@ def main():
     # Get arguments and start logging
     args = parser.parse_args()
     load_args(args.config, args)
+
     logpath = os.path.join(args.cv_dir, args.name)
     os.makedirs(logpath, exist_ok=True)
     save_args(args, logpath, args.config)
@@ -49,6 +58,19 @@ def main():
     else:
         dset = dataset.CompositionDataset
 
+    phosc_model = create_model(
+        model_name=args.model_name,
+        phos_size=args.phos_size,
+        phoc_size=args.phoc_size,
+        phos_layers=args.phos_layers,
+        phoc_layers=args.phoc_layers,
+        dropout=args.dropout
+    ).to(device)
+
+    phosc_model.load_state_dict(torch.load(args.pretrained_weights))
+
+    image_transform = transforms.ToTensor()
+
     # Get dataset
     trainset = dset(
         root=os.path.join(DATA_FOLDER, args.data_dir),
@@ -59,7 +81,9 @@ def main():
         pair_dropout=args.pair_dropout,
         update_features=args.update_features,
         train_only=args.train_only,
-        open_world=args.open_world
+        open_world=args.open_world,
+        phosc_transorm=image_transform,
+        args=args
     )
 
     trainloader = torch.utils.data.DataLoader(
@@ -76,7 +100,9 @@ def main():
         model=args.image_extractor,
         subset=args.subset,
         update_features=args.update_features,
-        open_world=args.open_world
+        open_world=args.open_world,
+        phosc_transorm=image_transform,
+        args=args
     )
 
     testloader = torch.utils.data.DataLoader(
@@ -85,8 +111,6 @@ def main():
         shuffle=False,
         num_workers=args.workers
     )
-
-    exit()
 
     # Get model and optimizer
     image_extractor, model, optimizer = configure_model(args, trainset)

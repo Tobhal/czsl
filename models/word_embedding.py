@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import clip
 from flags import DATA_FOLDER
-from utils.phoscnet.phos_generator import set_phos_version, generate_label
+from modules.utils import set_phos_version, generate_label
 
 
 def load_word_embeddings(emb_type, vocab, state):
