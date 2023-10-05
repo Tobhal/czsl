@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import clip
+import clip
 from flags import DATA_FOLDER
 from modules.utils import set_phos_version, generate_label
 

@@ -65,6 +65,7 @@ class CompCos(nn.Module):
             self.possible_pairs = dset.pairs
 
             # self.validation_pairs = dset.val_pairs
+            # self.validation_pairs = dset.val_pairs
 
             self.feasibility_margin = (1-self.seen_mask).float()
             self.epoch_max_margin = self.args.epoch_max_margin

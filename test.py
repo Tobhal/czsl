@@ -5,6 +5,7 @@ import torch.backends.cudnn as cudnn
 import numpy as np
 from flags import DATA_FOLDER
 from datetime import datetime
+from datetime import datetime
 
 cudnn.benchmark = True
 
@@ -28,6 +29,9 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 log_file = 'logs/text/log_test_cdqa_open_world.txt'
 
 
+log_file = 'logs/text/log_test_cdqa_open_world.txt'
+
+
 def main():
     # Get arguments and start logging
     args = parser.parse_args()
@@ -39,6 +43,7 @@ def main():
     # Get dataset
     trainset = dset.CompositionDataset(
         root=os.path.join(DATA_FOLDER, args.data_dir),
+        root=os.path.join(DATA_FOLDER, args.data_dir),
         phase='train',
         split=args.splitname,
         model=args.image_extractor,
@@ -49,6 +54,7 @@ def main():
     )
 
     valset = dset.CompositionDataset(
+        root=os.path.join(DATA_FOLDER, args.data_dir),
         root=os.path.join(DATA_FOLDER, args.data_dir),
         phase='val',
         split=args.splitname,
@@ -66,9 +72,13 @@ def main():
     testset = dset.CompositionDataset(
         root=os.path.join(DATA_FOLDER, args.data_dir),
         phase='test',
+        root=os.path.join(DATA_FOLDER, args.data_dir),
+        phase='test',
         split=args.splitname,
         model=args.image_extractor,
+        model=args.image_extractor,
         subset=args.subset,
+        update_features=args.update_features,
         update_features=args.update_features,
         open_world=args.open_world
     )
@@ -79,11 +89,13 @@ def main():
         num_workers=args.workers)
 
     exit()
+    exit()
 
     # Get model and optimizer
     image_extractor, model, optimizer = configure_model(args, trainset)
     args.extractor = image_extractor
 
+    args.load = ospj(logpath, 'ckpt_best_auc.t7')
     args.load = ospj(logpath, 'ckpt_best_auc.t7')
 
     checkpoint = torch.load(args.load)
@@ -108,16 +120,22 @@ def main():
             min_feasibility = (unseen_scores + seen_mask * 10.).min()
             max_feasibility = (unseen_scores - seen_mask * 10.).max()
             thresholds = np.linspace(min_feasibility, max_feasibility, num=args.threshold_trials)
+            min_feasibility = (unseen_scores + seen_mask * 10.).min()
+            max_feasibility = (unseen_scores - seen_mask * 10.).max()
+            thresholds = np.linspace(min_feasibility, max_feasibility, num=args.threshold_trials)
             best_auc = 0.
             best_th = -10
             with torch.no_grad():
                 for th in thresholds:
                     results = test(image_extractor, model, valoader, evaluator_val, args, threshold=th,
                                    print_results=False)
+                    results = test(image_extractor, model, valoader, evaluator_val, args, threshold=th,
+                                   print_results=False)
                     auc = results['AUC']
                     if auc > best_auc:
                         best_auc = auc
                         best_th = th
+                        write_log(best_auc, best_th)
                         write_log(best_auc, best_th)
 
             threshold = best_th
@@ -131,11 +149,18 @@ def main():
 def test(image_extractor, model, testloader, evaluator, args, threshold=None, print_results=True):
     if image_extractor:
         image_extractor.eval()
+def test(image_extractor, model, testloader, evaluator, args, threshold=None, print_results=True):
+    if image_extractor:
+        image_extractor.eval()
 
+    model.eval()
     model.eval()
 
     accuracies, all_sub_gt, all_attr_gt, all_obj_gt, all_pair_gt, all_pred = [], [], [], [], [], []
+    accuracies, all_sub_gt, all_attr_gt, all_obj_gt, all_pair_gt, all_pred = [], [], [], [], [], []
 
+    for idx, data in tqdm(enumerate(testloader), total=len(testloader), desc='Testing'):
+        data = [d.to(device) for d in data]
     for idx, data in tqdm(enumerate(testloader), total=len(testloader), desc='Testing'):
         data = [d.to(device) for d in data]
 
@@ -145,20 +170,42 @@ def test(image_extractor, model, testloader, evaluator, args, threshold=None, pr
             _, predictions = model(data)
         else:
             _, predictions = model.val_forward_with_threshold(data, threshold)
+        if image_extractor:
+            data[0] = image_extractor(data[0])
+        if threshold is None:
+            _, predictions = model(data)
+        else:
+            _, predictions = model.val_forward_with_threshold(data, threshold)
 
+        attr_truth, obj_truth, pair_truth = data[1], data[2], data[3]
         attr_truth, obj_truth, pair_truth = data[1], data[2], data[3]
 
         all_pred.append(predictions)
         all_attr_gt.append(attr_truth)
         all_obj_gt.append(obj_truth)
         all_pair_gt.append(pair_truth)
+        all_pred.append(predictions)
+        all_attr_gt.append(attr_truth)
+        all_obj_gt.append(obj_truth)
+        all_pair_gt.append(pair_truth)
 
+    if args.cpu_eval:
     if args.cpu_eval:
         all_attr_gt, all_obj_gt, all_pair_gt = torch.cat(all_attr_gt), torch.cat(all_obj_gt), torch.cat(all_pair_gt)
     else:
         all_attr_gt, all_obj_gt, all_pair_gt = torch.cat(all_attr_gt).to('cpu'), torch.cat(all_obj_gt).to(
             'cpu'), torch.cat(all_pair_gt).to('cpu')
+    else:
+        all_attr_gt, all_obj_gt, all_pair_gt = torch.cat(all_attr_gt).to('cpu'), torch.cat(all_obj_gt).to(
+            'cpu'), torch.cat(all_pair_gt).to('cpu')
 
+    all_pred_dict = {}
+    # Gather values as dict of (attr, obj) as key and list of predictions as values
+    if args.cpu_eval:
+        for k in all_pred[0].keys():
+            all_pred_dict[k] = torch.cat(
+                [all_pred[i][k].to('cpu') for i in range(len(all_pred))])
+    else:
     all_pred_dict = {}
     # Gather values as dict of (attr, obj) as key and list of predictions as values
     if args.cpu_eval:
@@ -174,7 +221,14 @@ def test(image_extractor, model, testloader, evaluator, args, threshold=None, pr
     results = evaluator.score_model(all_pred_dict, all_obj_gt, bias=args.bias, topk=args.topk)
     stats = evaluator.evaluate_predictions(results, all_attr_gt, all_obj_gt, all_pair_gt, all_pred_dict,
                                            topk=args.topk)
+    # Calculate best unseen accuracy
+    results = evaluator.score_model(all_pred_dict, all_obj_gt, bias=args.bias, topk=args.topk)
+    stats = evaluator.evaluate_predictions(results, all_attr_gt, all_obj_gt, all_pair_gt, all_pred_dict,
+                                           topk=args.topk)
 
+    result = ''
+    for key in stats:
+        result = result + key + '  ' + str(round(stats[key], 4)) + '| '
     result = ''
     for key in stats:
         result = result + key + '  ' + str(round(stats[key], 4)) + '| '
@@ -191,6 +245,33 @@ def test(image_extractor, model, testloader, evaluator, args, threshold=None, pr
             file.write('\n')
 
     return results
+    result = result + args.name
+    if print_results:
+        print(f'Results')
+        print(result)
+
+        with open(log_file, 'a') as file:
+            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')  # format datetime as string
+            file.write(f'Data: {args.data_dir} | Time: {timestamp}\n')
+            file.write(f'Resoult: {str(result)}')
+            file.write('\n')
+
+    return results
+
+
+# Logging to a file in Python
+def write_log(auc, hm):
+    args = parser.parse_args()
+
+    print('Best AUC achieved is ', auc)
+    print('Best TH achieved is ', hm)
+
+    with open(log_file, 'a') as file:  # 'a' stands for 'append'
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')  # format datetime as string
+        file.write(f'Data: {args.data_dir} | Time: {timestamp}\n')
+        file.write(f'Best AUC achived is: {str(auc)}\n')
+        file.write(f'Best TH achived is: {str(hm)}\n')
+        file.write('\n')
 
 
 # Logging to a file in Python

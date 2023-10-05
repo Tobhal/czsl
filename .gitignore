@@ -145,7 +145,12 @@ tensor-completion/*
 *.txt
 notebooks/._mit_graph.pdf
 
+<<<<<<< HEAD
 .fleet/
 
 DATA_ROOT/
 pretrained_model/phosc/
+=======
+DATA_ROOT/
+.fleet/
+>>>>>>> 6c17fc00a582ac0f0a4d9af4bb3e22c094a0d16e
