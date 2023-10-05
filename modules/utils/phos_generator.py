@@ -6,14 +6,10 @@ from num2words import num2words
 
 from typing import TextIO
 import os
-from utils.dbe import dbe
+# from utils.dbe import dbe
 
 
-def list_files(directory):
-    return os.listdir(directory)
 
-def file_exists(filepath):
-    return os.path.isfile(filepath)
 
 # Input: CSV file name that has shape counts for each alphabet
 # Output: Number of shapes/columns
@@ -114,13 +110,13 @@ def label_maker(word_txt: TextIO) -> dict:
     # write_s_file(s_matrix_csv, s_matrix, word_list)
 
 
-def gen_shape_description(word: str) -> str:
+def gen_shape_description(word: str) -> list:
     single_phos = word_vector(word)
-    shape_description = ''
+    shape_description = []
 
     for idx, shape in enumerate(single_phos):
         ordinal_idx = num2words(idx + 1, to='ordinal')
-        shape_description += f'The {ordinal_idx} shape is {shape}\n'
+        shape_description.append(f'The {ordinal_idx} shape is {shape}\n')
 
     return shape_description
 
@@ -141,3 +137,5 @@ if __name__ == '__main__':
     single_phos = word_vector(word)
     print(single_phos)
     print(len(single_phos))
+
+    print(gen_shape_description(word))

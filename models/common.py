@@ -264,6 +264,7 @@ class Evaluator:
         for _obj in dset.objs:
             mask = [1  if _obj == obj else 0 for attr, obj in dset.pairs]
             oracle_obj_mask.append(torch.BoolTensor(mask))
+
         self.oracle_obj_mask = torch.stack(oracle_obj_mask, 0)
 
         # Decide if the model under evaluation is a manifold model or not
@@ -310,11 +311,14 @@ class Evaluator:
         results.update({'unbiased_closed': get_pred_from_scores(closed_orig_scores, topk)})
 
         # Object_oracle setting - set the score to -1e10 for all pairs where the true object does Not participate, can also use the closed score
-        mask = self.oracle_obj_mask[obj_truth]
+        # dbe(obj_truth, self.oracle_obj_mask)
+        
+        # REMOVE: Have removed mask for now. I think this needs to be readed for the algorithm to work 100%.
+        # mask = self.oracle_obj_mask[obj_truth]  # ERROR: obj_truth is the clip representation of the word, not the actual word 
         oracle_obj_scores = scores.clone()
-        oracle_obj_scores[~mask] = -1e10
+        # oracle_obj_scores[~mask] = -1e10
         oracle_obj_scores_unbiased = orig_scores.clone()
-        oracle_obj_scores_unbiased[~mask] = -1e10
+        # oracle_obj_scores_unbiased[~mask] = -1e10
         results.update({'object_oracle': get_pred_from_scores(oracle_obj_scores, 1)})
         results.update({'object_oracle_unbiased': get_pred_from_scores(oracle_obj_scores_unbiased, 1)})
 
@@ -348,11 +352,15 @@ class Evaluator:
         scores = {k: v.to('cpu') for k, v in scores.items()}
         obj_truth = obj_truth.to(device)
 
+        # dbe(obj_truth)
+
         # Gather scores for all relevant (a,o) pairs
         scores = torch.stack(
             [scores[(attr,obj)] for attr, obj in self.dset.pairs], 1
         ) # (Batch, #pairs)
+
         orig_scores = scores.clone()
+        # NOTE: Called here
         results = self.generate_predictions(scores, obj_truth, bias, topk)
         results['scores'] = orig_scores
         return results
@@ -382,13 +390,20 @@ class Evaluator:
         # Go to CPU
         attr_truth, obj_truth, pair_truth = attr_truth.to('cpu'), obj_truth.to('cpu'), pair_truth.to('cpu')
 
-        pairs = list(
-            zip(list(attr_truth.numpy()), list(obj_truth.numpy())))
+        dbe(predictions)
 
+        pairs_truth = list(
+            zip(list(attr_truth.numpy()), list(obj_truth.numpy()))
+        )
+
+        # NOTE: So, the problem is that I need the index for graound truth not the actual value
+        # FIX: I am trying to implement the fix in the datloader first, to see if I can to the cahnge there first
+        # If that is not the problem then I need to maby convert the values somewhere.
+        dbe(pairs_truth, self.train_pairs)
 
         seen_ind, unseen_ind = [], []
         for i in range(len(attr_truth)):
-            if pairs[i] in self.train_pairs:
+            if pairs_truth[i] in self.train_pairs:
                 seen_ind.append(i)
             else:
                 unseen_ind.append(i)

@@ -1,12 +1,40 @@
 import inspect
+import os
 
-def dbe(*args, should_exit=True):
+# Typehinting
+from os import PathLike
+
+# Global variable to control printing of caller details
+PRINT_CALLER_DETAILS = False
+
+# Global variable to controll if program should exit after debug printing
+EXIT_AFTER_PRINT = True
+
+
+def list_files(directory: PathLike) -> bool:
+    return os.listdir(directory)
+
+
+def file_exists(filepath: PathLike) -> bool:
+    return os.path.isfile(filepath)
+
+
+def dbe(*args, should_exit=EXIT_AFTER_PRINT, print_caller_details=PRINT_CALLER_DETAILS):
     """Print names and values of input variables. Exit the program if should_exit is True."""
 
     if not args:
         raise ValueError("Function requires at least one argument")
 
     frame = inspect.currentframe().f_back
+
+    if print_caller_details:
+        # Get the name of the calling function
+        calling_function_name = frame.f_code.co_name
+        # Get the module name and file path
+        module_name = frame.f_globals['__name__']
+        file_path = frame.f_globals['__file__']
+
+        print(f"Func: {calling_function_name}() in module: {module_name} ({file_path})")
 
     try:
         code_string = inspect.getframeinfo(frame).code_context[0].strip()

@@ -99,10 +99,11 @@ class CompCos(nn.Module):
             a = int(a)
             layers.append(a)
 
-
+        """
         self.image_embedder = MLP(dset.feat_dim, int(args.emb_dim), relu=args.relu, num_layers=args.nlayers,
                                   dropout=self.args.dropout,
                                   norm=self.args.norm, layers=layers)
+        """
 
         # Fixed
         self.composition = args.composition
@@ -129,8 +130,7 @@ class CompCos(nn.Module):
                 param.requires_grad = False
 
         # Composition MLP
-        self.projection = nn.Linear(input_dim * 2, args.emb_dim)
-
+        self.projection = nn.Linear(input_dim * 2, args.phos_size + args.phoc_size)
 
     def freeze_representations(self):
         print('Freezing representations')
@@ -201,13 +201,17 @@ class CompCos(nn.Module):
 
     def val_forward(self, x):
         img = x[0]
-        img_feats = self.image_embedder(img)
-        img_feats_normed = F.normalize(img_feats, dim=1)
+        img_feats = img
+        # img_feats_normed = F.normalize(img_feats, dim=1)
         pair_embeds = self.compose(self.val_attrs, self.val_objs).permute(1, 0)  # Evaluate all pairs
-        score = torch.matmul(img_feats_normed, pair_embeds)
+
+        score = torch.matmul(img_feats, pair_embeds)
+        score = score.squeeze(0)
 
         scores = {}
+
         for itr, pair in enumerate(self.dset.pairs):
+            # dbe(self.dset.all_pair2idx[pair], score, pair_embeds, img_feats, should_exit=False)
             scores[pair] = score[:, self.dset.all_pair2idx[pair]]
 
         return None, scores
@@ -233,12 +237,24 @@ class CompCos(nn.Module):
 
     def train_forward_open(self, x):
         img, attrs, objs, pairs = x[0], x[1], x[2], x[3]
-        img_feats = self.image_embedder(img)
+
+        # dbe(pairs, self.train_attrs, self.train_objs, img)
+
+        img_feats = img
+        img_feats = img_feats.squeeze()
+        img_feats = img_feats.unsqueeze(0)
 
         pair_embed = self.compose(self.train_attrs, self.train_objs).permute(1, 0)
-        img_feats_normed = F.normalize(img_feats, dim=1)
 
-        pair_pred = torch.matmul(img_feats_normed, pair_embed)
+        # dbe(self.train_attrs, self.train_objs, pair_embed)
+
+        # dbe(img_feats.shape, pair_embed.shape)
+
+        # img_feats_normed = F.normalize(img_feats, dim=1)
+        
+        pair_pred = torch.matmul(img_feats, pair_embed).to(device)
+
+        pairs = pairs.to(device)
 
         if self.activated:
             pair_pred += (1 - self.seen_mask) * self.feasibility_margin
@@ -253,7 +269,7 @@ class CompCos(nn.Module):
     def train_forward_closed(self, x):
         img, attrs, objs, pairs = x[0], x[1], x[2], x[3]
 
-        img_feats = self.image_embedder(img)
+        img_feats = img
 
         pair_embed = self.compose(self.train_attrs, self.train_objs).permute(1, 0)
         img_feats_normed = F.normalize(img_feats, dim=1)
@@ -271,4 +287,5 @@ class CompCos(nn.Module):
         else:
             with torch.no_grad():
                 loss, pred = self.val_forward(x)
+
         return loss, pred

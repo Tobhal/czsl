@@ -148,4 +148,4 @@ notebooks/._mit_graph.pdf
 .fleet/
 
 DATA_ROOT/
-pretrained_models/
+pretrained_model/phosc/

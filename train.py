@@ -7,6 +7,8 @@ import torch.backends.cudnn as cudnn
 
 from torchvision.transforms import transforms
 
+import clip
+
 cudnn.benchmark = True
 
 # Python imports
@@ -28,8 +30,6 @@ from utils.utils import save_args, load_args
 from utils.config_model import configure_model
 from flags import parser, DATA_FOLDER
 from utils.dbe import dbe
-
-from modules.utils.engine import zslAccuracyTest
 
 from modules import models, residualmodels
 
@@ -58,6 +58,9 @@ def main():
     else:
         dset = dataset.CompositionDataset
 
+    image_transform = transforms.ToTensor()
+
+    # Define phosc model
     phosc_model = create_model(
         model_name=args.model_name,
         phos_size=args.phos_size,
@@ -66,10 +69,10 @@ def main():
         phoc_layers=args.phoc_layers,
         dropout=args.dropout
     ).to(device)
-
+    
     phosc_model.load_state_dict(torch.load(args.pretrained_weights))
 
-    image_transform = transforms.ToTensor()
+    clip_model, clip_transform = clip.load('ViT-B/32')
 
     # Get dataset
     trainset = dset(
@@ -83,6 +86,9 @@ def main():
         train_only=args.train_only,
         open_world=args.open_world,
         phosc_transorm=image_transform,
+        phosc_model=phosc_model,
+        clip_model=clip_model,
+        clip_transform=clip_transform,
         args=args
     )
 
@@ -102,6 +108,9 @@ def main():
         update_features=args.update_features,
         open_world=args.open_world,
         phosc_transorm=image_transform,
+        phosc_model=phosc_model,
+        clip_model=clip_model,
+        clip_transform=clip_transform,
         args=args
     )
 
@@ -196,8 +205,10 @@ def test(epoch, image_extractor, model, testloader, evaluator, writer, args, log
             'epoch': epoch,
             'AUC': stats['AUC']
         }
+
         if image_extractor:
             state['image_extractor'] = image_extractor.state_dict()
+
         torch.save(state, os.path.join(logpath, 'ckpt_{}.t7'.format(filename)))
 
     if image_extractor:
@@ -208,14 +219,23 @@ def test(epoch, image_extractor, model, testloader, evaluator, writer, args, log
     accuracies, all_sub_gt, all_attr_gt, all_obj_gt, all_pair_gt, all_pred = [], [], [], [], [], []
 
     for idx, data in tqdm(enumerate(testloader), total=len(testloader), desc='Testing'):
+        # FIX: At this point I get data where the ground truth is the converted values. I need to have them and the indexes of the values(I think)
+
         data = [d.to(device) for d in data]
+
+        dbe(data)
 
         if image_extractor:
             data[0] = image_extractor(data[0])
 
         _, predictions = model(data)
 
+        # dbe(predictions)
+
         attr_truth, obj_truth, pair_truth = data[1], data[2], data[3]
+
+        # FIX: Here is the problem (ish). attr_truth and obj_truth are the CLIP and PHOSC vectors not the actual words. This needs to be fixed
+        # dbe(data, attr_truth, obj_truth, pair_truth)
 
         all_pred.append(predictions)
         all_attr_gt.append(attr_truth)
@@ -226,20 +246,27 @@ def test(epoch, image_extractor, model, testloader, evaluator, writer, args, log
         all_attr_gt, all_obj_gt, all_pair_gt = torch.cat(all_attr_gt), torch.cat(all_obj_gt), torch.cat(all_pair_gt)
     else:
         all_attr_gt, all_obj_gt, all_pair_gt = torch.cat(all_attr_gt).to('cpu'), torch.cat(all_obj_gt).to(
-            'cpu'), torch.cat(all_pair_gt).to('cpu')
+            'cpu'
+        ), torch.cat(all_pair_gt).to('cpu')
 
     all_pred_dict = {}
     # Gather values as dict of (attr, obj) as key and list of predictions as values
     if args.cpu_eval:
         for k in all_pred[0].keys():
             all_pred_dict[k] = torch.cat(
-                [all_pred[i][k].to('cpu') for i in range(len(all_pred))])
+                [all_pred[i][k].to('cpu') for i in range(len(all_pred))]
+            )
     else:
         for k in all_pred[0].keys():
             all_pred_dict[k] = torch.cat(
-                [all_pred[i][k] for i in range(len(all_pred))])
+                [all_pred[i][k] for i in range(len(all_pred))]
+            )
+
 
     # Calculate best unseen accuracy
+    # dbe(all_obj_gt)
+    # NOTE: Called here. all_obj_gt, needs to be the real value?
+    dbe(all_pair_gt)
     results = evaluator.score_model(all_pred_dict, all_obj_gt, bias=args.bias, topk=args.topk)
     stats = evaluator.evaluate_predictions(results, all_attr_gt, all_obj_gt, all_pair_gt, all_pred_dict, topk=args.topk)
 
@@ -254,8 +281,10 @@ def test(epoch, image_extractor, model, testloader, evaluator, writer, args, log
     result = result + args.name
     print(f'Test Epoch: {epoch}')
     print(result)
+
     if epoch > 0 and epoch % args.save_every == 0:
         save_checkpoint(epoch)
+
     if stats['AUC'] > best_auc:
         best_auc = stats['AUC']
         print('New best AUC ', best_auc)

@@ -19,13 +19,16 @@ from itertools import product
 # Phosc
 from modules.utils import generate_phos_vector, generate_phoc_vector, set_phos_version, set_phoc_version, gen_shape_description
 
-from utils.dbe import dbe
+from utils.dbe import dbe, file_exists
 
-from num2words import num2words
+from timm import create_model
 
 # Typehinting
 from typing import Union
 from os import PathLike
+
+import torch.multiprocessing as mp
+mp.set_start_method('spawn')
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -119,8 +122,11 @@ class CompositionDataset(Dataset):
     '''
     def __init__(
         self,
-        root,
-        phase,
+        root: PathLike,
+        phase: str,
+        phosc_model,
+        clip_model,
+        clip_transform,
         split = 'compositional-split',
         model = 'resnet18',
         norm_family = 'imagenet',
@@ -148,33 +154,39 @@ class CompositionDataset(Dataset):
 
         self.args = args['args']
 
+        self.phosc_model = phosc_model
+        self.clip_model = clip_model
+        self.clip_transform = clip_transform
+
         # Make a clip representation of the language word that is used in the dataset
-        self.clip_model, self.clip_transform = clip.load('ViT-B/32')
+        
         self.clip_language_text = clip.tokenize(self.args.language_name)
 
         # Sett phos and phoc language
         set_phos_version(self.args.phosc_version)
-        set_phoc_version(self.args.phosc_version)
+        set_phoc_version(self.args.phosc_version)        
 
         self.attrs, self.objs, self.pairs, self.train_pairs, self.val_pairs, self.test_pairs, self.train_data, self.val_data, self.test_data = self.parse_split()
         
         self.full_pairs = list(product(self.attrs, self.objs))
         
-        # Clean only was here
+        # NOTE: Change the obj2idx and attr2idx to actualy be the data we want.
         self.obj2idx = {obj: idx for idx, obj in enumerate(self.objs)}
-        self.attr2idx = {attr : idx for idx, attr in enumerate(self.attrs)}
+        self.attr2idx = {attr: idx for idx, attr in enumerate(self.attrs)}
+
         if self.open_world:
             self.pairs = self.full_pairs
 
         self.all_pair2idx = {pair: idx for idx, pair in enumerate(self.pairs)}
 
+        # NOTE: Change the pair2idx to be the actual data we want.
         if train_only and self.phase == 'train':
             print('Using only train pairs')
             self.pair2idx = {pair : idx for idx, pair in enumerate(self.train_pairs)}
         else:
             print('Using all pairs')
             self.pair2idx = {pair : idx for idx, pair in enumerate(self.pairs)}
-        
+
         # Setting data to phase
         if self.phase == 'train':
             self.data = self.train_data
@@ -189,6 +201,7 @@ class CompositionDataset(Dataset):
             raise ValueError('Invalid training phase')
 
         self.all_data = self.train_data + self.val_data + self.test_data
+
         print('Dataset loaded')
         print('Train pairs: {}, Validation pairs: {}, Test Pairs: {}'.format(
             len(self.train_pairs), len(self.val_pairs), len(self.test_pairs))
@@ -324,7 +337,7 @@ class CompositionDataset(Dataset):
         return all_attrs, all_objs, all_pairs, tr_pairs, vl_pairs, ts_pairs, tr_data, vl_data, ts_data
 
 
-    def get_dict_data(self, data, pairs):
+    def get_dict_data(self, data, pairs) -> dict:
         data_dict = {}
         for current in pairs:
             data_dict[current] = []
@@ -357,7 +370,7 @@ class CompositionDataset(Dataset):
         print('Using {} images out of {} images right now'.format(
             len(self.sample_indices), len(self.data)))
 
-    def sample_negative(self, attr, obj):
+    def sample_negative(self, attr, obj) -> tuple:
         '''
         Inputs
             attr: String of valid attribute
@@ -389,7 +402,7 @@ class CompositionDataset(Dataset):
         
         return self.attr2idx[new_attr]
 
-    def sample_train_affordance(self, attr, obj):
+    def sample_train_affordance(self, attr, obj) -> int:
         '''
         Inputs
             attr: String of valid attribute
@@ -463,16 +476,40 @@ class CompositionDataset(Dataset):
         # image.thumbnail(image_resize, Image.ANTIALIAS)
 
         # Decide what to output
+        """
         if not self.update_features:
             img = self.activations[image]
         else:
             img = self.loader(image)
             img = self.transform(img)
+        """
+        # dbe(self.root, file_exists(ospj(self.root, self.split, image)))
 
-        d_attr = self.clip_language_text
+        image_path = ospj(self.root, self.split, image)
+
+        img = Image.open(image_path)
+
+        trans = transforms.Compose([transforms.ToTensor()])
+        img = trans(img)
+
+        img = torch.tensor(img)
+        img = img.unsqueeze(0)
+        img = img.to(device)
+
+        pred = self.phosc_model(img)
+
+        d_image = torch.cat([pred['phos'], pred['phoc']], dim=1)
+
+        d_attr = torch.tensor(self.clip_language_text).to(device)
+        
         d_obj = gen_shape_description(obj)
+        d_obj = [clip.tokenize(line) for line in d_obj]
 
-        data = [img, d_attr, d_obj, (d_attr, d_obj)]
+        d_obj = torch.cat(d_obj)
+        d_obj = torch.tensor(d_obj)
+
+        # FIX: Need to add the real values to what attr and obj should be also?
+        # data = [d_image, d_attr, d_obj, self.pair2idx[(attr, obj)]]
 
         if self.phase == 'train':
             all_neg_attrs = []
@@ -487,7 +524,7 @@ class CompositionDataset(Dataset):
             
             # dbe(self.train_obj_affordance)
 
-            #note here
+            # NOTE: There probaly needs to be some changes here. This secion is only opperating on the index of the attr and obj, not the actual data.
             if len(self.train_obj_affordance[obj])>1:
                   inv_attr = self.sample_train_affordance(attr, obj) # attribute for inverse regularizer
             else:

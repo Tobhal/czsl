@@ -15,6 +15,7 @@ model_params:
   relu: false
   fc_emb: 768,1024,1200
   emb_dim: 512
+  # emb_dim: 1395
   emb_init: clip
   image_extractor: resnet18
   train_only: false
@@ -35,18 +36,19 @@ training:
   test_set: val
   topk: 1
   wd: 5.0e-05
-  workers: 8
+  # workers: 8
+  workers: 0  # So the dataloaders work, shared refrence to cuda problems
   update_features: false  # temp, should be `false`
   freeze_features: false
   epoch_max_margin: 15
 phoscnet: 
   model_name: ResNet18Phosc
   phos_size: 195
-  phoc_size: 1120
+  phoc_size: 1200
   phos_layers: 1
   phoc_layers: 1
   dropout: 0.5
-  image_resize_x: 1000
-  image_resize_y: 800
+  image_resize_x: 1170
+  image_resize_y: 414
   language_name: Bengali
   phosc_version: ben
