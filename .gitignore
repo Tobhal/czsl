@@ -145,5 +145,7 @@ tensor-completion/*
 *.txt
 notebooks/._mit_graph.pdf
 
-DATA_ROOT/
 .fleet/
+
+DATA_ROOT/
+pretrained_models/
