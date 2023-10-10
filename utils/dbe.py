@@ -10,7 +10,6 @@ PRINT_CALLER_DETAILS = False
 # Global variable to controll if program should exit after debug printing
 EXIT_AFTER_PRINT = True
 
-
 def list_files(directory: PathLike) -> bool:
     return os.listdir(directory)
 

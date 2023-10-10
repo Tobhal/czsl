@@ -283,15 +283,19 @@ class Evaluator:
         Returns
             results: dict of results in 3 settings
         '''
-        def get_pred_from_scores(_scores, topk):
+        def get_pred_from_scores(_scores, topk, flatten=True):
             '''
             Given list of scores, returns top 10 attr and obj predictions
             Check later
             '''
             _, pair_pred = _scores.topk(topk, dim = 1) #sort returns indices of k largest values
-            pair_pred = pair_pred.contiguous().view(-1)
+
+            if flatten:
+                pair_pred = pair_pred.contiguous().view(-1)
+
             attr_pred, obj_pred = self.pairs[pair_pred][:, 0].view(-1, topk), \
                 self.pairs[pair_pred][:, 1].view(-1, topk)
+
             return (attr_pred, obj_pred)
 
         results = {}
@@ -311,18 +315,20 @@ class Evaluator:
         closed_scores[~mask] = -1e10 
         closed_orig_scores = orig_scores.clone()
         closed_orig_scores[~mask] = -1e10
+
         results.update({'closed': get_pred_from_scores(closed_scores, topk)})
         results.update({'unbiased_closed': get_pred_from_scores(closed_orig_scores, topk)})
 
         # Object_oracle setting - set the score to -1e10 for all pairs where the true object does Not participate, can also use the closed score
         # dbe(obj_truth, self.oracle_obj_mask)
         
-        # REMOVE: Have removed mask for now. I think this needs to be readed for the algorithm to work 100%.
-        # mask = self.oracle_obj_mask[obj_truth]  # ERROR: obj_truth is the clip representation of the word, not the actual word 
+        mask = self.oracle_obj_mask[obj_truth]
         oracle_obj_scores = scores.clone()
-        # oracle_obj_scores[~mask] = -1e10
+        oracle_obj_scores[~mask] = -1e10
+
         oracle_obj_scores_unbiased = orig_scores.clone()
-        # oracle_obj_scores_unbiased[~mask] = -1e10
+        oracle_obj_scores_unbiased[~mask] = -1e10
+
         results.update({'object_oracle': get_pred_from_scores(oracle_obj_scores, 1)})
         results.update({'object_oracle_unbiased': get_pred_from_scores(oracle_obj_scores_unbiased, 1)})
 
@@ -394,7 +400,7 @@ class Evaluator:
         # Go to CPU
         attr_truth, obj_truth, pair_truth = attr_truth.to('cpu'), obj_truth.to('cpu'), pair_truth.to('cpu')
 
-        dbe(predictions)
+        # dbe(predictions)
 
         pairs_truth = list(
             zip(list(attr_truth.numpy()), list(obj_truth.numpy()))
@@ -403,7 +409,7 @@ class Evaluator:
         # NOTE: So, the problem is that I need the index for graound truth not the actual value
         # FIX: I am trying to implement the fix in the datloader first, to see if I can to the cahnge there first
         # If that is not the problem then I need to maby convert the values somewhere.
-        dbe(pairs_truth, self.train_pairs)
+        # dbe(pairs_truth, self.train_pairs)
 
         seen_ind, unseen_ind = [], []
         for i in range(len(attr_truth)):
@@ -417,8 +423,8 @@ class Evaluator:
         def _process(_scores):
             # Top k pair accuracy
             # Attribute, object and pair
-            attr_match = (attr_truth.unsqueeze(1).repeat(1, topk) == _scores[0][:, :topk])
-            obj_match = (obj_truth.unsqueeze(1).repeat(1, topk) == _scores[1][:, :topk])
+            attr_match = (attr_truth.unsqueeze(1).repeat(1, topk) == _scores[0][:420, :topk])
+            obj_match = (obj_truth.unsqueeze(1).repeat(1, topk) == _scores[1][:420, :topk])
 
             # Match of object pair
             match = (attr_match * obj_match).any(1).float()
@@ -455,9 +461,13 @@ class Evaluator:
             for val, name in zip(_scores, base):
                 stats[type_name + name] = val
 
+        # dbe(attr_truth.shape, predictions['object_oracle'][0][:, 0].shape)
+
+        # attr_truth = attr_truth.view(predictions['object_oracle'][0][:, 0].shape)
+
         ##################### Match in places where corrent object
-        obj_oracle_match = (attr_truth == predictions['object_oracle'][0][:, 0]).float()  #object is already conditioned
-        obj_oracle_match_unbiased = (attr_truth == predictions['object_oracle_unbiased'][0][:, 0]).float()
+        obj_oracle_match = (attr_truth == predictions['object_oracle'][0][:420, 0]).float()  #object is already conditioned
+        obj_oracle_match_unbiased = (attr_truth == predictions['object_oracle_unbiased'][0][:420, 0]).float()
 
         stats = dict(obj_oracle_match = obj_oracle_match, obj_oracle_match_unbiased = obj_oracle_match_unbiased)
 
@@ -473,7 +483,7 @@ class Evaluator:
         correct_scores = scores[torch.arange(scores.shape[0]), pair_truth][unseen_ind]
 
         # Getting top predicted score for these unseen classes
-        max_seen_scores = predictions['scores'][unseen_ind][:, self.seen_mask].topk(topk, dim=1)[0][:, topk - 1]
+        max_seen_scores = predictions['scores'][unseen_ind][:, self.seen_mask].topk(topk, dim=1)[0][:420, topk - 1]
 
         # Getting difference between these scores
         unseen_score_diff = max_seen_scores - correct_scores

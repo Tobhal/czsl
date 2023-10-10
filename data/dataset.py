@@ -17,8 +17,6 @@ from itertools import product
 
 from utils.dbe import dbe
 
-from utils.dbe import dbe
-
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 class ImageLoader:
@@ -250,8 +248,7 @@ class CompositionDataset(Dataset):
             list(set(tr_attrs + vl_attrs + ts_attrs))), sorted(
                 list(set(tr_objs + vl_objs + ts_objs))
             )
-                list(set(tr_objs + vl_objs + ts_objs))
-            )
+
         all_pairs = sorted(list(set(tr_pairs + vl_pairs + ts_pairs)))
 
         return all_attrs, all_objs, all_pairs, tr_pairs, vl_pairs, ts_pairs

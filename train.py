@@ -39,6 +39,7 @@ compose_switch = True
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
+
 def main():
     # Get arguments and start logging
     args = parser.parse_args()
@@ -175,12 +176,19 @@ def train_normal(epoch, image_extractor, model, trainloader, optimizer, writer):
 
     train_loss = 0.0
     for idx, data in tqdm(enumerate(trainloader), total=len(trainloader), desc='Training'):
-        data = [d.to(device) for d in data]
+        # data = [d.to(device) for d in data]
+
+        model_data = [
+            data['image']['pred_image'].to(device),
+            data['attr']['truth_idx'].to(device),
+            data['obj']['truth_idx'].to(device),
+            data['pairs']['all'].to(device)
+        ]
 
         if image_extractor:
-            data[0] = image_extractor(data[0])
+            data['image']['path'] = image_extractor(data['image']['path'])
 
-        loss, _ = model(data)
+        loss, _ = model(model_data)
 
         optimizer.zero_grad()
         loss.backward()
@@ -221,18 +229,25 @@ def test(epoch, image_extractor, model, testloader, evaluator, writer, args, log
     for idx, data in tqdm(enumerate(testloader), total=len(testloader), desc='Testing'):
         # FIX: At this point I get data where the ground truth is the converted values. I need to have them and the indexes of the values(I think)
 
-        data = [d.to(device) for d in data]
-
-        dbe(data)
+        model_data = [
+            data['image']['pred_image'].to(device),
+            data['attr']['truth_idx'].to(device),
+            data['obj']['truth_idx'].to(device),
+            data['pairs']['all'].to(device)
+        ]
 
         if image_extractor:
-            data[0] = image_extractor(data[0])
+            data['image']['path'] = image_extractor(data['image']['path'])
 
-        _, predictions = model(data)
+        _, predictions = model(model_data)
 
         # dbe(predictions)
 
-        attr_truth, obj_truth, pair_truth = data[1], data[2], data[3]
+        attr_truth, obj_truth, pair_truth = (
+            data['attr']['truth_idx'],
+            data['obj']['truth_idx'],
+            data['pairs']['truth_idx']
+        )
 
         # FIX: Here is the problem (ish). attr_truth and obj_truth are the CLIP and PHOSC vectors not the actual words. This needs to be fixed
         # dbe(data, attr_truth, obj_truth, pair_truth)
@@ -266,7 +281,6 @@ def test(epoch, image_extractor, model, testloader, evaluator, writer, args, log
     # Calculate best unseen accuracy
     # dbe(all_obj_gt)
     # NOTE: Called here. all_obj_gt, needs to be the real value?
-    dbe(all_pair_gt)
     results = evaluator.score_model(all_pred_dict, all_obj_gt, bias=args.bias, topk=args.topk)
     stats = evaluator.evaluate_predictions(results, all_attr_gt, all_obj_gt, all_pair_gt, all_pred_dict, topk=args.topk)
 

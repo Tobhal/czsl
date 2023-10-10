@@ -511,6 +511,35 @@ class CompositionDataset(Dataset):
         # FIX: Need to add the real values to what attr and obj should be also?
         # data = [d_image, d_attr, d_obj, self.pair2idx[(attr, obj)]]
 
+        all_pairs = [self.pair2idx[pair] for pair in self.pairs]
+
+        all_pairs = torch.tensor(all_pairs).to(device)
+
+        data = {
+            'image': {
+                'path': image_path,
+                'pred_image': d_image,
+                'pred_phos': pred['phos'],
+                'pred_phoc': pred['phoc']
+            },
+            'attr': {
+                'pred': d_attr,
+                'truth': attr,
+                'truth_idx': self.attr2idx[attr]
+            },
+            'obj': {
+                'pred': d_obj,
+                'truth': obj,
+                'truth_idx': self.obj2idx[obj]
+            },
+            'pairs': {
+                'pred': (d_attr, d_obj),
+                'truth': (attr, obj),
+                'truth_idx': self.pair2idx[(attr, obj)],
+                'all': all_pairs
+            }
+        }
+
         if self.phase == 'train':
             all_neg_attrs = []
             all_neg_objs = []
@@ -532,11 +561,11 @@ class CompositionDataset(Dataset):
 
             comm_attr = self.sample_affordance(inv_attr, obj) # attribute for commutative regularizer
 
-            data += [neg_attr, neg_obj, inv_attr, comm_attr]
+            data['attr']['neg'] = neg_attr
+            data['attr']['inv'] = inv_attr
+            data['attr']['comm'] = comm_attr
 
-        # Return image paths if requested as the last element of the list
-        if self.return_images and self.phase != 'train':
-            data.append(image)
+            data['obj']['neg'] = neg_obj
 
         return data
     

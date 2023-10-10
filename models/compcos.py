@@ -64,8 +64,7 @@ class CompCos(nn.Module):
             self.objs = dset.objs
             self.possible_pairs = dset.pairs
 
-            # self.validation_pairs = dset.val_pairs
-            # self.validation_pairs = dset.val_pairs
+            self.validation_pairs = dset.val_pairs
 
             self.feasibility_margin = (1-self.seen_mask).float()
             self.epoch_max_margin = self.args.epoch_max_margin
@@ -94,17 +93,15 @@ class CompCos(nn.Module):
             self.args.fc_emb = self.args.fc_emb.split(',')
         except:
             self.args.fc_emb = [self.args.fc_emb]
-            
         layers = []
         for a in self.args.fc_emb:
             a = int(a)
             layers.append(a)
 
-        """
+
         self.image_embedder = MLP(dset.feat_dim, int(args.emb_dim), relu=args.relu, num_layers=args.nlayers,
                                   dropout=self.args.dropout,
                                   norm=self.args.norm, layers=layers)
-        """
 
         # Fixed
         self.composition = args.composition
@@ -118,7 +115,6 @@ class CompCos(nn.Module):
         if args.emb_init:
             pretrained_weight = load_word_embeddings(args.emb_init, dset.attrs, 'attrs')
             self.attr_embedder.weight.data.copy_(pretrained_weight)
-            
             pretrained_weight = load_word_embeddings(args.emb_init, dset.objs, 'objs')
             self.obj_embedder.weight.data.copy_(pretrained_weight)
 
@@ -126,12 +122,12 @@ class CompCos(nn.Module):
         if args.static_inp:
             for param in self.attr_embedder.parameters():
                 param.requires_grad = False
-                
             for param in self.obj_embedder.parameters():
                 param.requires_grad = False
 
         # Composition MLP
         self.projection = nn.Linear(input_dim * 2, args.phos_size + args.phoc_size)
+
 
     def freeze_representations(self):
         print('Freezing representations')
@@ -150,7 +146,7 @@ class CompCos(nn.Module):
         output = self.projection(inputs)
         output = F.normalize(output, dim=1)
         return output
-    
+
 
     def compute_feasibility(self):
         obj_embeddings = self.obj_embedder(torch.arange(len(self.objs)).long().to('cuda'))
@@ -202,18 +198,17 @@ class CompCos(nn.Module):
 
     def val_forward(self, x):
         img = x[0]
-        img_feats = img
-        # img_feats_normed = F.normalize(img_feats, dim=1)
+        # img_feats = self.image_embedder(img)
+        img_feats_normed = F.normalize(img, dim=1)
         pair_embeds = self.compose(self.val_attrs, self.val_objs).permute(1, 0)  # Evaluate all pairs
-
-        score = torch.matmul(img_feats, pair_embeds)
-        score = score.squeeze(0)
-
+        score = torch.matmul(img_feats_normed, pair_embeds)
+        
         scores = {}
-
         for itr, pair in enumerate(self.dset.pairs):
-            # dbe(self.dset.all_pair2idx[pair], score, pair_embeds, img_feats, should_exit=False)
-            scores[pair] = score[:, self.dset.all_pair2idx[pair]]
+            if score.shape[1] > 1:  # if score has more than one element in the second dimension
+                scores[pair] = score[:, self.dset.all_pair2idx[pair]]
+            else:
+                scores[pair] = score[:, 0]  # if score has only one element in the second dimension
 
         return None, scores
 
@@ -238,24 +233,26 @@ class CompCos(nn.Module):
 
     def train_forward_open(self, x):
         img, attrs, objs, pairs = x[0], x[1], x[2], x[3]
-
-        # dbe(pairs, self.train_attrs, self.train_objs, img)
-
-        img_feats = img
-        img_feats = img_feats.squeeze()
-        img_feats = img_feats.unsqueeze(0)
+        # img_feats = self.image_embedder(img)
 
         pair_embed = self.compose(self.train_attrs, self.train_objs).permute(1, 0)
+        img_feats_normed = F.normalize(img, dim=1)
 
-        # dbe(self.train_attrs, self.train_objs, pair_embed)
+        pair_pred = torch.matmul(img_feats_normed, pair_embed)
+        pair_pred = pair_pred.squeeze(0)
 
-        # dbe(img_feats.shape, pair_embed.shape)
+        if len(pair_pred.shape) == 1:  # if pair_pred is 1D
+            pair_pred = pair_pred.unsqueeze(0)  # make it 2D
 
-        # img_feats_normed = F.normalize(img_feats, dim=1)
-        
-        pair_pred = torch.matmul(img_feats, pair_embed).to(device)
+        if len(pairs.shape) > 1:  # if pairs is not 1D
+            pairs = pairs.squeeze()  # make it 1D
 
-        pairs = pairs.to(device)
+        # If the batch sizes don't match, adjust them
+        if pair_pred.shape[0] != pairs.shape[0]:
+            if pair_pred.shape[0] < pairs.shape[0]:
+                pairs = pairs[:pair_pred.shape[0]]
+            else:
+                pair_pred = pair_pred[:pairs.shape[0]]
 
         if self.activated:
             pair_pred += (1 - self.seen_mask) * self.feasibility_margin
@@ -269,8 +266,7 @@ class CompCos(nn.Module):
 
     def train_forward_closed(self, x):
         img, attrs, objs, pairs = x[0], x[1], x[2], x[3]
-
-        img_feats = img
+        img_feats = self.image_embedder(img)
 
         pair_embed = self.compose(self.train_attrs, self.train_objs).permute(1, 0)
         img_feats_normed = F.normalize(img_feats, dim=1)
@@ -288,5 +284,5 @@ class CompCos(nn.Module):
         else:
             with torch.no_grad():
                 loss, pred = self.val_forward(x)
-
         return loss, pred
+    
