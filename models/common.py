@@ -9,10 +9,6 @@ from utils.dbe import dbe
 
 import math
 
-from utils.dbe import dbe
-
-import math
-
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 class MLP(nn.Module):
@@ -275,7 +271,7 @@ class Evaluator:
         self.score_model = self.score_manifold_model
 
     # Generate mask for each settings, mask scores, and get prediction labels
-    def generate_predictions(self, scores, obj_truth, bias = 0.0, topk = 5): # (Batch, #pairs)
+    def generate_predictions(self, scores, obj_truth_idx, bias = 0.0, topk = 5): # (Batch, #pairs)
         '''
         Inputs
             scores: Output scores
@@ -283,15 +279,19 @@ class Evaluator:
         Returns
             results: dict of results in 3 settings
         '''
-        def get_pred_from_scores(_scores, topk, flatten=True):
+        def get_pred_from_scores(_scores, topk, flatten=True, p=False):
             '''
             Given list of scores, returns top 10 attr and obj predictions
             Check later
             '''
             _, pair_pred = _scores.topk(topk, dim = 1) #sort returns indices of k largest values
 
+            pair_pred = pair_pred.to(device)
+
             if flatten:
                 pair_pred = pair_pred.contiguous().view(-1)
+
+            # dbe(self.pairs[pair_pred].shape)
 
             attr_pred, obj_pred = self.pairs[pair_pred][:, 0].view(-1, topk), \
                 self.pairs[pair_pred][:, 1].view(-1, topk)
@@ -322,7 +322,7 @@ class Evaluator:
         # Object_oracle setting - set the score to -1e10 for all pairs where the true object does Not participate, can also use the closed score
         # dbe(obj_truth, self.oracle_obj_mask)
         
-        mask = self.oracle_obj_mask[obj_truth]
+        mask = self.oracle_obj_mask[obj_truth_idx]
         oracle_obj_scores = scores.clone()
         oracle_obj_scores[~mask] = -1e10
 
@@ -354,24 +354,42 @@ class Evaluator:
 
         return results
 
-    def score_manifold_model(self, scores, obj_truth, bias = 0.0, topk = 5):
+    def score_manifold_model(self, scores, obj_truth_idx, bias = 0.0, topk = 5):
         '''
         Wrapper function to call generate_predictions for manifold models
         '''
-        # Go to CPU
-        scores = {k: v.to('cpu') for k, v in scores.items()}
-        obj_truth = obj_truth.to(device)
+        # dbe(scores[('Bengali', 'ধরমতলা') ].shape, obj_truth_idx.shape)
 
-        # dbe(obj_truth)
+        # scores[...] = torch.Size([420, 250])
+        # obj_truth_idx = torch.Size([420])
+
+        # Go to CPU
+        # Initialize an empty dictionary
+        new_scores = {}
+
+        # Iterate over each item in the scores dictionary
+        for k, v in scores.items():
+            # Convert the value to 'cpu' and assign it to the corresponding key in the new dictionary
+            new_scores[k] = v.to('cpu')
+            new_scores[k] = new_scores[k].contiguous().view(-1)
+
+        # FIX: obj_truth_idx should be shape [420, 250]
+
+        # Assign the new dictionary back to scores
+        scores = new_scores
+
+        obj_truth_idx = obj_truth_idx.to(device)
 
         # Gather scores for all relevant (a,o) pairs
         scores = torch.stack(
             [scores[(attr,obj)] for attr, obj in self.dset.pairs], 1
         ) # (Batch, #pairs)
 
+        # scores = torch.Size([10500, 250])
+
         orig_scores = scores.clone()
         # NOTE: Called here
-        results = self.generate_predictions(scores, obj_truth, bias, topk)
+        results = self.generate_predictions(scores, obj_truth_idx, bias, topk)
         results['scores'] = orig_scores
         return results
 
@@ -401,10 +419,11 @@ class Evaluator:
         attr_truth, obj_truth, pair_truth = attr_truth.to('cpu'), obj_truth.to('cpu'), pair_truth.to('cpu')
 
         # dbe(predictions)
-
+        """ 
         pairs_truth = list(
             zip(list(attr_truth.numpy()), list(obj_truth.numpy()))
         )
+        """
 
         # NOTE: So, the problem is that I need the index for graound truth not the actual value
         # FIX: I am trying to implement the fix in the datloader first, to see if I can to the cahnge there first
@@ -413,7 +432,7 @@ class Evaluator:
 
         seen_ind, unseen_ind = [], []
         for i in range(len(attr_truth)):
-            if pairs_truth[i] in self.train_pairs:
+            if pair_truth[i] in self.train_pairs:
                 seen_ind.append(i)
             else:
                 unseen_ind.append(i)
@@ -423,8 +442,12 @@ class Evaluator:
         def _process(_scores):
             # Top k pair accuracy
             # Attribute, object and pair
-            attr_match = (attr_truth.unsqueeze(1).repeat(1, topk) == _scores[0][:420, :topk])
-            obj_match = (obj_truth.unsqueeze(1).repeat(1, topk) == _scores[1][:420, :topk])
+            # FIX: Not use the `:420`
+            # dbe(attr_truth.unsqueeze(1).repeat(1, topk).shape)
+
+            attr_match = (attr_truth.unsqueeze(1).repeat(1, topk) == _scores[0][:, :topk])
+            # FIX: Not use the `:420`
+            obj_match = (obj_truth.unsqueeze(1).repeat(1, topk) == _scores[1][:, :topk])
 
             # Match of object pair
             match = (attr_match * obj_match).any(1).float()
@@ -466,12 +489,41 @@ class Evaluator:
         # attr_truth = attr_truth.view(predictions['object_oracle'][0][:, 0].shape)
 
         ##################### Match in places where corrent object
-        obj_oracle_match = (attr_truth == predictions['object_oracle'][0][:420, 0]).float()  #object is already conditioned
-        obj_oracle_match_unbiased = (attr_truth == predictions['object_oracle_unbiased'][0][:420, 0]).float()
+        # FIX: Not use the `:420`
+        # dbe(attr_truth, attr_truth.shape, predictions['object_oracle'][0].shape)
+
+        attr_truth = attr_truth.contiguous().view(-1)
+        obj_truth = obj_truth.contiguous().view(-1)
+
+        """
+        # Convert tuple to list
+        temp_list = list(predictions['object_oracle'])
+
+        # Apply view function
+        temp_list[0] = temp_list[0].view([420, 1, 250])
+
+        # Convert list back to tuple and store in dictionary
+        predictions['object_oracle'] = tuple(temp_list)
+
+        # Convert tuple to list
+        temp_list = list(predictions['object_oracle_unbiased'])
+
+        # Apply view function
+        temp_list[0] = temp_list[0].view([420, 1, 250])
+
+        # Convert list back to tuple and store in dictionary
+        predictions['object_oracle_unbiased'] = tuple(temp_list)
+        """
+
+        # NOTE: Change attr_truth to attr_truth with the CLIP encoding.
+        obj_oracle_match = (attr_truth == predictions['object_oracle'][0][:, 0]).float()  #object is already conditioned
+        obj_oracle_match_unbiased = (attr_truth == predictions['object_oracle_unbiased'][0][:, 0]).float()
 
         stats = dict(obj_oracle_match = obj_oracle_match, obj_oracle_match_unbiased = obj_oracle_match_unbiased)
 
         #################### Closed world
+        # dbe(predictions['closed'][0].shape, predictions['unbiased_closed'][0].shape)
+
         closed_scores = _process(predictions['closed'])
         unbiased_closed = _process(predictions['unbiased_closed'])
         _add_to_dict(closed_scores, 'closed', stats)
@@ -483,7 +535,8 @@ class Evaluator:
         correct_scores = scores[torch.arange(scores.shape[0]), pair_truth][unseen_ind]
 
         # Getting top predicted score for these unseen classes
-        max_seen_scores = predictions['scores'][unseen_ind][:, self.seen_mask].topk(topk, dim=1)[0][:420, topk - 1]
+        # FIX: Not use the `:420`
+        max_seen_scores = predictions['scores'][unseen_ind][:, self.seen_mask].topk(topk, dim=1)[0][:, topk - 1].to('cpu')
 
         # Getting difference between these scores
         unseen_score_diff = max_seen_scores - correct_scores
@@ -536,11 +589,13 @@ class Evaluator:
 
         harmonic_mean = hmean([seen_accuracy, unseen_accuracy], axis = 0)
         max_hm = np.max(harmonic_mean)
+
         idx = np.argmax(harmonic_mean)
         if idx == len(biaslist):
             bias_term = 1e3
         else:
             bias_term = biaslist[idx]
+
         stats['biasterm'] = float(bias_term)
         stats['best_unseen'] = np.max(unseen_accuracy)
         stats['best_seen'] = np.max(seen_accuracy)
@@ -548,4 +603,5 @@ class Evaluator:
         stats['hm_unseen'] = unseen_accuracy[idx]
         stats['hm_seen'] = seen_accuracy[idx]
         stats['best_hm'] = max_hm
+
         return stats

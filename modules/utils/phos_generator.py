@@ -116,7 +116,7 @@ def gen_shape_description(word: str) -> list:
 
     for idx, shape in enumerate(single_phos):
         ordinal_idx = num2words(idx + 1, to='ordinal')
-        shape_description.append(f'The {ordinal_idx} shape is {shape}\n')
+        shape_description.append(f'The {ordinal_idx} shape is {shape}.\n')
 
     return shape_description
 

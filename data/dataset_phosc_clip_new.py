@@ -27,6 +27,8 @@ from timm import create_model
 from typing import Union
 from os import PathLike
 
+import random
+
 import torch.multiprocessing as mp
 mp.set_start_method('spawn')
 
@@ -138,6 +140,7 @@ class CompositionDataset(Dataset):
         train_only = False,
         open_world=False,
         phosc_transorm=None,
+        p=False,
         **args
     ):
         self.root = root
@@ -168,6 +171,9 @@ class CompositionDataset(Dataset):
 
         self.attrs, self.objs, self.pairs, self.train_pairs, self.val_pairs, self.test_pairs, self.train_data, self.val_data, self.test_data = self.parse_split()
         
+        if p:
+            dbe(len(self.attrs), len(self.objs))
+
         self.full_pairs = list(product(self.attrs, self.objs))
         
         # NOTE: Change the obj2idx and attr2idx to actualy be the data we want.
@@ -465,6 +471,8 @@ class CompositionDataset(Dataset):
 
         image, attr, obj = self.data[index]
 
+        # dbe(self.data[index])
+
         # Convert image to Phosc representation
         # image = Image.open(image_path)
 
@@ -498,15 +506,15 @@ class CompositionDataset(Dataset):
 
         pred = self.phosc_model(img)
 
-        d_image = torch.cat([pred['phos'], pred['phoc']], dim=1)
+        pred_image = torch.cat([pred['phos'], pred['phoc']], dim=1) # torch.Size([1, 1395])
 
         d_attr = torch.tensor(self.clip_language_text).to(device)
         
         d_obj = gen_shape_description(obj)
-        d_obj = [clip.tokenize(line) for line in d_obj]
-
-        d_obj = torch.cat(d_obj)
+        d_obj = clip.tokenize(d_obj)    # torch.size([13, 77])
         d_obj = torch.tensor(d_obj)
+
+        # dbe(d_attr.shape, d_obj.shape)
 
         # FIX: Need to add the real values to what attr and obj should be also?
         # data = [d_image, d_attr, d_obj, self.pair2idx[(attr, obj)]]
@@ -518,19 +526,21 @@ class CompositionDataset(Dataset):
         data = {
             'image': {
                 'path': image_path,
-                'pred_image': d_image,
-                'pred_phos': pred['phos'],
-                'pred_phoc': pred['phoc']
+                'pred_image': pred_image,   # torch.Size([1, 1395])
+                'pred_phos': pred['phos'],  # torch.Size([1, 195])
+                'pred_phoc': pred['phoc']   # torch.Size([1, 1200])
             },
             'attr': {
-                'pred': d_attr,
+                'pred': d_attr, # torch.Size([1, 77])
                 'truth': attr,
-                'truth_idx': self.attr2idx[attr]
+                'truth_idx': self.attr2idx[attr],
+                'clip': d_attr  # NOTE: Using d_attr here aswell in case I need something else for the value later
             },
             'obj': {
-                'pred': d_obj,
+                'pred': d_obj,  # torch.Size([13, 77])
                 'truth': obj,
-                'truth_idx': self.obj2idx[obj]
+                'truth_idx': self.obj2idx[obj],
+                'clip': d_obj  # NOTE: Using d_obj here aswell in case I need something else for the value later
             },
             'pairs': {
                 'pred': (d_attr, d_obj),

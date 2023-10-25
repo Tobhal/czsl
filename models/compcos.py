@@ -41,7 +41,7 @@ class CompCos(nn.Module):
             return attrs, objs, pairs
 
         # Validation
-        self.val_attrs, self.val_objs, self.val_pairs = get_all_ids(self.dset.pairs)
+        self.val_attrs_idx, self.val_objs_idx, self.val_pairs_idx = get_all_ids(self.dset.pairs)
 
         # for indivual projections
         self.uniq_attrs, self.uniq_objs = torch.arange(len(self.dset.attrs)).long().to(device), \
@@ -60,6 +60,7 @@ class CompCos(nn.Module):
             self.activated = False
 
             # Init feasibility-related variables
+            # FIX: Change these values to be the real value?
             self.attrs = dset.attrs
             self.objs = dset.objs
             self.possible_pairs = dset.pairs
@@ -87,7 +88,7 @@ class CompCos(nn.Module):
         if args.train_only:
             self.train_attrs, self.train_objs, self.train_pairs = get_all_ids(self.dset.train_pairs)
         else:
-            self.train_attrs, self.train_objs, self.train_pairs = self.val_attrs, self.val_objs, self.val_pairs
+            self.train_attrs, self.train_objs, self.train_pairs = self.val_attrs_idx, self.val_objs_idx, self.val_pairs_idx
 
         try:
             self.args.fc_emb = self.args.fc_emb.split(',')
@@ -107,6 +108,7 @@ class CompCos(nn.Module):
         self.composition = args.composition
 
         input_dim = args.emb_dim
+
         self.attr_embedder = nn.Embedding(len(dset.attrs), input_dim)
         self.obj_embedder = nn.Embedding(len(dset.objs), 195)
         self.obj_linear = nn.Linear(195, input_dim)
@@ -140,18 +142,23 @@ class CompCos(nn.Module):
 
 
     def compose(self, attrs, objs):
-        attrs = self.attr_embedder(attrs)
-        objs = self.obj_linear(self.obj_embedder(objs))  # apply linear transformation
-        inputs = torch.cat([attrs, objs], 1) 
+        attrs = self.attr_embedder(attrs)   # torch.Size([250, 512])
+
+        # apply linear transformation
+        objs = self.obj_linear(self.obj_embedder(objs)) # torch.Size([250, 512])
+
+        inputs = torch.cat([attrs, objs], 1)    # torch.Size([250, 1024])
         output = self.projection(inputs)
-        output = F.normalize(output, dim=1)
-        return output
+        output = F.normalize(output, dim=1)     # torch.Size([250, 1395])
+
+        return output   # torch.Size([250, 1395])
 
 
     def compute_feasibility(self):
         obj_embeddings = self.obj_embedder(torch.arange(len(self.objs)).long().to('cuda'))
         obj_embedding_sim = compute_cosine_similarity(self.objs, obj_embeddings,
                                                            return_dict=True)
+
         attr_embeddings = self.attr_embedder(torch.arange(len(self.attrs)).long().to('cuda'))
         attr_embedding_sim = compute_cosine_similarity(self.attrs, attr_embeddings,
                                                             return_dict=True)
@@ -197,11 +204,13 @@ class CompCos(nn.Module):
 
 
     def val_forward(self, x):
-        img = x[0]
+        img, attr_truth_idx, obj_truth_idx, pairs_truth_idx, attr_truth, obj_truth = x
         # img_feats = self.image_embedder(img)
-        img_feats_normed = F.normalize(img, dim=1)
-        pair_embeds = self.compose(self.val_attrs, self.val_objs).permute(1, 0)  # Evaluate all pairs
-        score = torch.matmul(img_feats_normed, pair_embeds)
+        img_feats_normed = F.normalize(img, dim=1)  # torch.Size([1, 1, 1395])
+
+        # Evaluate all pairs
+        pair_embeds = self.compose(self.val_attrs_idx, self.val_objs_idx).permute(1, 0) # torch.Size([1395, 250])
+        score = torch.matmul(img_feats_normed, pair_embeds)     # torch.Size([1, 1, 250])
         
         scores = {}
         for itr, pair in enumerate(self.dset.pairs):
@@ -210,14 +219,14 @@ class CompCos(nn.Module):
             else:
                 scores[pair] = score[:, 0]  # if score has only one element in the second dimension
 
-        return None, scores
+        return None, scores # len = 250
 
 
     def val_forward_with_threshold(self, x, th=0.):
         img = x[0]
         img_feats = self.image_embedder(img)
         img_feats_normed = F.normalize(img_feats, dim=1)
-        pair_embeds = self.compose(self.val_attrs, self.val_objs).permute(1, 0)  # Evaluate all pairs
+        pair_embeds = self.compose(self.val_attrs_idx, self.val_objs_idx).permute(1, 0)  # Evaluate all pairs
         score = torch.matmul(img_feats_normed, pair_embeds)
 
         # Note: Pairs are already aligned here
@@ -284,5 +293,6 @@ class CompCos(nn.Module):
         else:
             with torch.no_grad():
                 loss, pred = self.val_forward(x)
+
         return loss, pred
     

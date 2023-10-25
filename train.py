@@ -112,6 +112,7 @@ def main():
         phosc_model=phosc_model,
         clip_model=clip_model,
         clip_transform=clip_transform,
+        p=False,
         args=args
     )
 
@@ -129,8 +130,6 @@ def main():
     train = train_normal
 
     evaluator_val = Evaluator(testset, model)
-
-    print(model)
 
     start_epoch = 0
     # Load checkpoint
@@ -164,7 +163,7 @@ def main():
     write_log(best_auc, best_hm)
 
 
-def train_normal(epoch, image_extractor, model, trainloader, optimizer, writer):
+def train_normal(epoch, image_extractor, model, train_loader, optimizer, writer):
     '''
     Runs training for an epoch
     '''
@@ -175,7 +174,7 @@ def train_normal(epoch, image_extractor, model, trainloader, optimizer, writer):
     model.train()  # Let's switch to training
 
     train_loss = 0.0
-    for idx, data in tqdm(enumerate(trainloader), total=len(trainloader), desc='Training'):
+    for idx, data in tqdm(enumerate(train_loader), total=len(train_loader), desc='Training'):
         # data = [d.to(device) for d in data]
 
         model_data = [
@@ -196,12 +195,12 @@ def train_normal(epoch, image_extractor, model, trainloader, optimizer, writer):
 
         train_loss += loss.item()
 
-    train_loss = train_loss / len(trainloader)
+    train_loss = train_loss / len(train_loader)
     writer.add_scalar('Loss/train_total', train_loss, epoch)
     print('Epoch: {}| Loss: {}'.format(epoch, round(train_loss, 2)))
 
 
-def test(epoch, image_extractor, model, testloader, evaluator, writer, args, logpath):
+def test(epoch, image_extractor, model, test_loader, evaluator, writer, args, logpath):
     '''
     Runs testing for an epoch
     '''
@@ -224,65 +223,142 @@ def test(epoch, image_extractor, model, testloader, evaluator, writer, args, log
 
     model.eval()
 
-    accuracies, all_sub_gt, all_attr_gt, all_obj_gt, all_pair_gt, all_pred = [], [], [], [], [], []
+    accuracies, all_sub_gt, all_attr_gt_idx, all_obj_gt_idx, all_pair_gt_idx, all_pred = [], [], [], [], [], []
+    real_attr_gt, real_obj_gt = [], []
 
-    for idx, data in tqdm(enumerate(testloader), total=len(testloader), desc='Testing'):
+    for idx, data in tqdm(enumerate(test_loader), total=len(test_loader), desc='Testing'):
         # FIX: At this point I get data where the ground truth is the converted values. I need to have them and the indexes of the values(I think)
+
+        # dbe(data['obj']['truth'], data['obj']['pred'], data['obj']['clip'])
 
         model_data = [
             data['image']['pred_image'].to(device),
             data['attr']['truth_idx'].to(device),
             data['obj']['truth_idx'].to(device),
-            data['pairs']['all'].to(device)
+            data['pairs']['all'].to(device),
+            # TODO: Add acutal data here aswel, so this can be used in the `forward()` functions.
+            data['attr']['pred'],
+            data['obj']['pred']
         ]
 
         if image_extractor:
             data['image']['path'] = image_extractor(data['image']['path'])
 
-        _, predictions = model(model_data)
+        _, predictions = model(model_data)  # Len = 250
 
         # dbe(predictions)
 
-        attr_truth, obj_truth, pair_truth = (
+        attr_truth_idx, obj_truth_idx, pair_truth_idx = (
             data['attr']['truth_idx'],
             data['obj']['truth_idx'],
             data['pairs']['truth_idx']
         )
 
-        # FIX: Here is the problem (ish). attr_truth and obj_truth are the CLIP and PHOSC vectors not the actual words. This needs to be fixed
-        # dbe(data, attr_truth, obj_truth, pair_truth)
+        length = predictions[next(iter(predictions))].shape[1]
+
+        # NOTE: Temp fix for dimention problems
+        attr_truth_idx = [attr_truth_idx[0] for _ in range(length)]
+        attr_truth_idx = torch.stack(attr_truth_idx)
+
+        # NOTE: Temp fix for dimention problems
+        obj_truth_idx = [obj_truth_idx[0] for _ in range(length)]
+        obj_truth_idx = torch.stack(obj_truth_idx)
+
+        pair_truth_idx = [pair_truth_idx[0] for _ in range(length)]
+        pair_truth_idx = torch.stack(pair_truth_idx)
 
         all_pred.append(predictions)
-        all_attr_gt.append(attr_truth)
-        all_obj_gt.append(obj_truth)
-        all_pair_gt.append(pair_truth)
+        all_attr_gt_idx.append(attr_truth_idx)
+        all_obj_gt_idx.append(obj_truth_idx)
+        all_pair_gt_idx.append(pair_truth_idx)
+
+        real_attr_gt.append(data['attr']['clip'])
+        real_obj_gt.append(data['obj']['clip'])
+
+
+    # TODO: Iterate each element of `all_attr_gt_idx`, `all_obj_gt_idx` and `all_pair_gt_idx` and copy the value from each tensor to a size of `len(predictions)` = `250`?
 
     if args.cpu_eval:
-        all_attr_gt, all_obj_gt, all_pair_gt = torch.cat(all_attr_gt), torch.cat(all_obj_gt), torch.cat(all_pair_gt)
+        all_attr_gt_idx, all_obj_gt_idx, all_pair_gt_idx = torch.cat(all_attr_gt_idx), torch.cat(all_obj_gt_idx), torch.cat(all_pair_gt_idx)
     else:
-        all_attr_gt, all_obj_gt, all_pair_gt = torch.cat(all_attr_gt).to('cpu'), torch.cat(all_obj_gt).to(
-            'cpu'
-        ), torch.cat(all_pair_gt).to('cpu')
+        all_attr_gt_idx = torch.cat(all_attr_gt_idx).to(device)  # torch.Size([420])
+
+        all_obj_gt_idx = torch.cat(all_obj_gt_idx).to(device)    # torch.Size([420])
+        all_pair_gt_idx = torch.cat(all_pair_gt_idx).to(device)  # torch.Size([420])
+
+        real_attr_gt = torch.cat(real_attr_gt, dim=0).to(device) # torch.Size([420, 1, 77])
+        real_obj_gt = torch.cat(real_obj_gt, dim=0).to(device)   # torch.Size([420, 13, 77])
+
+        # dbe(len(all_pred))
+
+    # dbe(len(all_pred[0].keys()), len(all_pred), len(all_pred[0].keys()) + len(all_pred))
+
+    # dbe(all_obj_gt_idx, all_obj_gt_idx.shape)
 
     all_pred_dict = {}
     # Gather values as dict of (attr, obj) as key and list of predictions as values
+    # NOTE: This is where the convertion to ([420, 1, 250]) happens
+    # TODO: Find out how to ether get the `real_obj_gt` and `real_attr_gt` to be ([420, 1, 250]) or `all_pred_dict` to be ([420, 1, 77])
     if args.cpu_eval:
         for k in all_pred[0].keys():
             all_pred_dict[k] = torch.cat(
                 [all_pred[i][k].to('cpu') for i in range(len(all_pred))]
             )
     else:
-        for k in all_pred[0].keys():
-            all_pred_dict[k] = torch.cat(
-                [all_pred[i][k] for i in range(len(all_pred))]
-            )
+        for k in all_pred[0].keys():            
+            temp_list = []
+            for i in range(len(all_pred)):  # 420
+                temp_list.append(all_pred[i][k])
 
+            all_pred_dict[k] = torch.cat(temp_list)  # torch.Shape([420, 250])
+
+    # `all_pred` = 420
+    # `all_pred_dict` = 250
 
     # Calculate best unseen accuracy
     # dbe(all_obj_gt)
     # NOTE: Called here. all_obj_gt, needs to be the real value?
-    results = evaluator.score_model(all_pred_dict, all_obj_gt, bias=args.bias, topk=args.topk)
-    stats = evaluator.evaluate_predictions(results, all_attr_gt, all_obj_gt, all_pair_gt, all_pred_dict, topk=args.topk)
+
+
+    results = evaluator.score_model(all_pred_dict, all_obj_gt_idx, bias=args.bias, topk=args.topk)
+    """
+    {
+        'open': (
+            torch.Size([105000, 1]) | torch.Size([420, 1, 250])
+            ,
+            torch.Size([105000, 1]) | torch.Size([420, 1, 250])
+        ),
+        'unbiased_open': (
+            torch.Size([105000, 1]) | torch.Size([420, 1, 250])
+            ,
+            torch.Size([105000, 1]) | torch.Size([420, 1, 250])
+        ),
+        'closed': (
+            torch.Size([105000, 1]) | torch.Size([420, 1, 250])
+            ,
+            torch.Size([105000, 1]) | torch.Size([420, 1, 250])
+        ),
+        'unbiased_closed': (
+            torch.Size([105000, 1]) | torch.Size([420, 1, 250])
+            ,
+            torch.Size([105000, 1]) | torch.Size([420, 1, 250])
+        ),
+        'object_oracle': (
+            torch.Size([105000, 1]) | torch.Size([420, 1, 250])
+            ,
+            torch.Size([105000, 1]) | torch.Size([420, 1, 250])
+        ),
+        'object_oracle_unbiased': (
+            torch.Size([105000, 1]) | torch.Size([420, 1, 250])
+            ,
+            torch.Size([105000, 1]) | torch.Size([420, 1, 250])
+        ),
+        'scores': torch.Size([420, 250, 250])
+    }
+    """
+
+    # stats = evaluator.evaluate_predictions(results, real_attr_gt, all_obj_gt_idx, all_pair_gt_idx, all_pred_dict, topk=args.topk)
+    stats = evaluator.evaluate_predictions(results, all_attr_gt_idx, all_obj_gt_idx, all_pair_gt_idx, all_pred_dict, topk=args.topk)
 
     stats['a_epoch'] = epoch
 
@@ -299,13 +375,13 @@ def test(epoch, image_extractor, model, testloader, evaluator, writer, args, log
     if epoch > 0 and epoch % args.save_every == 0:
         save_checkpoint(epoch)
 
-    if stats['AUC'] > best_auc:
+    if epoch > 0 or stats['AUC'] > best_auc:
         best_auc = stats['AUC']
         print('New best AUC ', best_auc)
         save_checkpoint('best_auc')
         write_log(auc=best_auc)
 
-    if stats['best_hm'] > best_hm:
+    if epoch > 0 or stats['best_hm'] > best_hm:
         best_hm = stats['best_hm']
         print('New best HM ', best_hm)
         save_checkpoint('best_hm')
