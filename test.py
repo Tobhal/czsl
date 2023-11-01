@@ -5,6 +5,8 @@ import torch.backends.cudnn as cudnn
 import numpy as np
 from flags import DATA_FOLDER
 
+from torchvision.transforms import transforms
+
 cudnn.benchmark = True
 
 # Python imports
@@ -44,6 +46,8 @@ def main():
         dset = dataset_phosc_clip_new.CompositionDataset
     else:
         dset = dataset.CompositionDataset
+
+    image_transform = transforms.ToTensor()
 
     # Define phosc model
     phosc_model = create_model(
@@ -95,25 +99,32 @@ def main():
         num_workers=8)
 
     testset = dset(
-        root=os.path.join(DATA_FOLDER,args.data_dir),
-        phase='test',
+        root=os.path.join(DATA_FOLDER, args.data_dir),
+        phase=args.test_set,
         split=args.splitname,
-        model =args.image_extractor,
+        model=args.image_extractor,
         subset=args.subset,
-        update_features = args.update_features,
+        update_features=args.update_features,
         open_world=args.open_world,
+        phosc_transorm=image_transform,
         phosc_model=phosc_model,
         clip_model=clip_model,
         clip_transform=clip_transform,
+        p=False,
         args=args
     )
+
     testloader = torch.utils.data.DataLoader(
         testset,
         batch_size=args.test_batch_size,
         shuffle=False,
-        num_workers=args.workers)
+        num_workers=args.workers
+    )
 
     args.model = 'compcos'
+
+    # dbe(args)
+
     # Get model and optimizer
     image_extractor, model, optimizer = configure_model(args, trainset)
     args.extractor = image_extractor
@@ -129,30 +140,38 @@ def main():
         except:
             print('No Image extractor in checkpoint')
             
+    # dbe(checkpoint['net'], checkpoint['net'].keys())
     model.load_state_dict(checkpoint['net'])
     model.eval()
 
     threshold = None
     if args.open_world and args.hard_masking:
         assert args.model == 'compcos', args.model + ' does not have hard masking.'
+
         if args.threshold is not None:
             threshold = args.threshold
         else:
             evaluator_val = Evaluator(valset, model)
             unseen_scores = model.compute_feasibility().to('cpu')
             seen_mask = model.seen_mask.to('cpu')
+
             min_feasibility = (unseen_scores+seen_mask*10.).min()
             max_feasibility = (unseen_scores-seen_mask*10.).max()
+
             thresholds = np.linspace(min_feasibility,max_feasibility, num=args.threshold_trials)
+
             best_auc = 0.
             best_th = -10
+
             with torch.no_grad():
                 for th in thresholds:
                     results = test(image_extractor,model,valoader,evaluator_val,args,threshold=th,print_results=False)
                     auc = results['AUC']
+
                     if auc > best_auc:
                         best_auc = auc
                         best_th = th
+
                         print('New best AUC',best_auc)
                         print('Threshold',best_th)
 
@@ -160,6 +179,7 @@ def main():
 
     evaluator = Evaluator(testset, model)
 
+    # dbe(evaluator.test_pair_dict)
     with torch.no_grad():
         test(image_extractor, model, testloader, evaluator, args, threshold)
 
@@ -170,47 +190,75 @@ def test(image_extractor, model, testloader, evaluator,  args, threshold=None, p
 
         model.eval()
 
-        accuracies, all_sub_gt, all_attr_gt, all_obj_gt, all_pair_gt, all_pred = [], [], [], [], [], []
+        accuracies, all_sub_gt, all_attr_gt_idx, all_obj_gt_idx, all_pair_gt_idx, all_pred = [], [], [], [], [], []
+        real_attr_gt, real_obj_gt = [], []
 
         for idx, data in tqdm(enumerate(testloader), total=len(testloader), desc='Testing'):
-            data = [d.to(device) for d in data]
+            model_data = [
+                data['image']['pred_image'].to(device),
+                data['attr']['truth_idx'].to(device),
+                data['obj']['truth_idx'].to(device),
+                data['pairs']['all'].to(device),
+                # TODO: Add acutal data here aswel, so this can be used in the `forward()` functions.
+                data['attr']['pred'],
+                data['obj']['pred']
+            ]
 
-            if image_extractor:
-                data[0] = image_extractor(data[0])
             if threshold is None:
-                _, predictions = model(data)
+                _, predictions = model(model_data)
             else:
-                _, predictions = model.val_forward_with_threshold(data,threshold)
+                _, predictions = model.val_forward_with_threshold(model_data, threshold)
 
-            attr_truth, obj_truth, pair_truth = data[1], data[2], data[3]
+            attr_truth_idx, obj_truth_idx, pair_truth_idx = (
+                data['attr']['truth_idx'],
+                data['obj']['truth_idx'],
+                data['pairs']['truth_idx']
+            )
+
+            length = predictions[next(iter(predictions))].shape[1]
+
+            # NOTE: Temp fix for dimention problems
+            attr_truth_idx = [attr_truth_idx[0] for _ in range(length)]
+            attr_truth_idx = torch.stack(attr_truth_idx)
+
+            # NOTE: Temp fix for dimention problems
+            obj_truth_idx = [obj_truth_idx[0] for _ in range(length)]
+            obj_truth_idx = torch.stack(obj_truth_idx)
+
+            pair_truth_idx = [pair_truth_idx[0] for _ in range(length)]
+            pair_truth_idx = torch.stack(pair_truth_idx)
 
             all_pred.append(predictions)
-            all_attr_gt.append(attr_truth)
-            all_obj_gt.append(obj_truth)
-            all_pair_gt.append(pair_truth)
+            all_attr_gt_idx.append(attr_truth_idx)
+            all_obj_gt_idx.append(obj_truth_idx)
+            all_pair_gt_idx.append(pair_truth_idx)
 
         if args.cpu_eval:
-            all_attr_gt, all_obj_gt, all_pair_gt = torch.cat(all_attr_gt), torch.cat(all_obj_gt), torch.cat(all_pair_gt)
+            all_attr_gt_idx, all_obj_gt_idx, all_pair_gt_idx = torch.cat(all_attr_gt_idx), torch.cat(all_obj_gt_idx), torch.cat(all_pair_gt_idx)
         else:
-            all_attr_gt, all_obj_gt, all_pair_gt = torch.cat(all_attr_gt).to('cpu'), torch.cat(all_obj_gt).to(
-                'cpu'), torch.cat(all_pair_gt).to('cpu')
+            all_attr_gt_idx = torch.cat(all_attr_gt_idx).to(device)  # torch.Size([420])
+
+            all_obj_gt_idx = torch.cat(all_obj_gt_idx).to(device)    # torch.Size([420])
+            all_pair_gt_idx = torch.cat(all_pair_gt_idx).to(device)  # torch.Size([420])
 
         all_pred_dict = {}
         # Gather values as dict of (attr, obj) as key and list of predictions as values
         if args.cpu_eval:
             for k in all_pred[0].keys():
                 all_pred_dict[k] = torch.cat(
-                    [all_pred[i][k].to('cpu') for i in range(len(all_pred))])
+                    [all_pred[i][k].to('cpu') for i in range(len(all_pred))]
+                )
         else:
-            for k in all_pred[0].keys():
-                all_pred_dict[k] = torch.cat(
-                    [all_pred[i][k] for i in range(len(all_pred))])
+            for k in all_pred[0].keys():            
+                temp_list = []
+                for i in range(len(all_pred)):  # 420
+                    temp_list.append(all_pred[i][k])
+
+                all_pred_dict[k] = torch.cat(temp_list)  # torch.Shape([420, 250])
 
         # Calculate best unseen accuracy
-        results = evaluator.score_model(all_pred_dict, all_obj_gt, bias=args.bias, topk=args.topk)
-        stats = evaluator.evaluate_predictions(results, all_attr_gt, all_obj_gt, all_pair_gt, all_pred_dict,
-                                               topk=args.topk)
-
+        results = evaluator.score_model(all_pred_dict, all_obj_gt_idx, bias=args.bias, topk=args.topk)
+        stats = evaluator.evaluate_predictions(results, all_attr_gt_idx, all_obj_gt_idx, all_pair_gt_idx, all_pred_dict, topk=args.topk)
 
         result = ''
         for key in stats:
@@ -220,6 +268,7 @@ def test(image_extractor, model, testloader, evaluator,  args, threshold=None, p
         if print_results:
             print(f'Results')
             print(result)
+
         return results
 
 

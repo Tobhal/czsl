@@ -207,6 +207,9 @@ def test(epoch, image_extractor, model, test_loader, evaluator, writer, args, lo
     global best_auc, best_hm
 
     def save_checkpoint(filename):
+
+        dbe(model.state_dict().keys(), should_exit=False)
+
         state = {
             'net': model.state_dict(),
             'epoch': epoch,
@@ -372,16 +375,16 @@ def test(epoch, image_extractor, model, test_loader, evaluator, writer, args, lo
     print(f'Test Epoch: {epoch}')
     print(result)
 
-    if epoch > 0 and epoch % args.save_every == 0:
+    if epoch >= 0 and epoch % args.save_every == 0:
         save_checkpoint(epoch)
 
-    if epoch > 0 or stats['AUC'] > best_auc:
+    if epoch >= 0 or stats['AUC'] > best_auc:
         best_auc = stats['AUC']
         print('New best AUC ', best_auc)
         save_checkpoint('best_auc')
         write_log(auc=best_auc)
 
-    if epoch > 0 or stats['best_hm'] > best_hm:
+    if epoch >= 0 or stats['best_hm'] > best_hm:
         best_hm = stats['best_hm']
         print('New best HM ', best_hm)
         save_checkpoint('best_hm')

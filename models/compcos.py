@@ -99,6 +99,8 @@ class CompCos(nn.Module):
             a = int(a)
             layers.append(a)
 
+        # args.emb_dim = 1395
+        # dbe(args.emb_dim)
 
         self.image_embedder = MLP(dset.feat_dim, int(args.emb_dim), relu=args.relu, num_layers=args.nlayers,
                                   dropout=self.args.dropout,
@@ -129,6 +131,8 @@ class CompCos(nn.Module):
 
         # Composition MLP
         self.projection = nn.Linear(input_dim * 2, args.phos_size + args.phoc_size)
+        # self.projection = nn.Linear(input_dim * 2, 512)
+        # dbe(self.projection)
 
 
     def freeze_representations(self):
@@ -210,6 +214,7 @@ class CompCos(nn.Module):
 
         # Evaluate all pairs
         pair_embeds = self.compose(self.val_attrs_idx, self.val_objs_idx).permute(1, 0) # torch.Size([1395, 250])
+
         score = torch.matmul(img_feats_normed, pair_embeds)     # torch.Size([1, 1, 250])
         
         scores = {}

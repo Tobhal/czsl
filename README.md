@@ -83,6 +83,11 @@ To test a CompCos model in the open world setting with hard masking, run:
     python test.py --logpath LOG_DIR_COMPCOS --open_world --hard_masking
 ```
 
+Test Bengali
+```
+    python test.py --logpath logs/Bengali/ --open_world
+```
+
 
 ## References
 If you use this code, please cite
