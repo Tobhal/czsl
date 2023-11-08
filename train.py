@@ -138,13 +138,16 @@ def main():
         if image_extractor:
             try:
                 image_extractor.load_state_dict(checkpoint['image_extractor'])
+                
                 if args.freeze_features:
                     print('Freezing image extractor')
                     image_extractor.eval()
+
                     for param in image_extractor.parameters():
                         param.requires_grad = False
             except:
                 print('No Image extractor in checkpoint')
+                
         model.load_state_dict(checkpoint['net'])
         start_epoch = checkpoint['epoch']
         print('Loaded model from ', args.load)
@@ -249,7 +252,8 @@ def test(epoch, image_extractor, model, test_loader, evaluator, writer, args, lo
 
         _, predictions = model(model_data)  # Len = 250
 
-        # dbe(predictions)
+        # NOTE: Squeeze the extra dimention away so this prediction shape equals the prediction shape from the original czsl code
+        predictions = {key: value.squeeze() for key, value in predictions.items()}
 
         attr_truth_idx, obj_truth_idx, pair_truth_idx = (
             data['attr']['truth_idx'],
@@ -257,18 +261,21 @@ def test(epoch, image_extractor, model, test_loader, evaluator, writer, args, lo
             data['pairs']['truth_idx']
         )
 
-        length = predictions[next(iter(predictions))].shape[1]
+        # """
+        length = predictions[next(iter(predictions))].shape[0]
+
+        # dbe(attr_truth_idx, obj_truth_idx, pair_truth_idx)
 
         # NOTE: Temp fix for dimention problems
-        attr_truth_idx = [attr_truth_idx[0] for _ in range(length)]
-        attr_truth_idx = torch.stack(attr_truth_idx)
+        # FIX: Might want to use CLIP on the value where the index is pointing, then the dimentions will be correct. In `common` after the flatten compare the size of the CLIP. So the lenght of the CLIP is the lenght for eacn single element.
+        attr_truth_idx = attr_truth_idx[0].unsqueeze(0).expand(length, -1).clone().squeeze()
 
         # NOTE: Temp fix for dimention problems
-        obj_truth_idx = [obj_truth_idx[0] for _ in range(length)]
-        obj_truth_idx = torch.stack(obj_truth_idx)
+        obj_truth_idx = obj_truth_idx[0].unsqueeze(0).expand(length, -1).clone().squeeze()
 
-        pair_truth_idx = [pair_truth_idx[0] for _ in range(length)]
-        pair_truth_idx = torch.stack(pair_truth_idx)
+        # NOTE: Temp fix for dimention problems
+        pair_truth_idx = pair_truth_idx[0].unsqueeze(0).expand(length, -1).clone().squeeze()
+        # """
 
         all_pred.append(predictions)
         all_attr_gt_idx.append(attr_truth_idx)
@@ -322,7 +329,7 @@ def test(epoch, image_extractor, model, test_loader, evaluator, writer, args, lo
     # dbe(all_obj_gt)
     # NOTE: Called here. all_obj_gt, needs to be the real value?
 
-
+    print('Score model:')
     results = evaluator.score_model(all_pred_dict, all_obj_gt_idx, bias=args.bias, topk=args.topk)
     """
     {
@@ -360,7 +367,9 @@ def test(epoch, image_extractor, model, test_loader, evaluator, writer, args, lo
     }
     """
 
+    # dbe(all_attr_gt_idx, all_attr_gt_idx.shape, results['object_oracle'][0][:, 0], results['object_oracle'][0][:, 0].shape)
     # stats = evaluator.evaluate_predictions(results, real_attr_gt, all_obj_gt_idx, all_pair_gt_idx, all_pred_dict, topk=args.topk)
+    print('Evaluate predictions:')
     stats = evaluator.evaluate_predictions(results, all_attr_gt_idx, all_obj_gt_idx, all_pair_gt_idx, all_pred_dict, topk=args.topk)
 
     stats['a_epoch'] = epoch

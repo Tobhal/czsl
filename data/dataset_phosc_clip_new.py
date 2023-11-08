@@ -500,7 +500,7 @@ class CompositionDataset(Dataset):
         trans = transforms.Compose([transforms.ToTensor()])
         img = trans(img)
 
-        img = torch.tensor(img)
+        img = img.clone()
         img = img.unsqueeze(0)
         img = img.to(device)
 
@@ -508,11 +508,11 @@ class CompositionDataset(Dataset):
 
         pred_image = torch.cat([pred['phos'], pred['phoc']], dim=1) # torch.Size([1, 1395])
 
-        d_attr = torch.tensor(self.clip_language_text).to(device)
+        d_attr = self.clip_language_text.clone().to(device)
         
         d_obj = gen_shape_description(obj)
         d_obj = clip.tokenize(d_obj)    # torch.size([13, 77])
-        d_obj = torch.tensor(d_obj)
+        d_obj = d_obj.clone()
 
         # dbe(d_attr.shape, d_obj.shape)
 

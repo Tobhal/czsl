@@ -218,15 +218,14 @@ def test(image_extractor, model, testloader, evaluator,  args, threshold=None, p
             length = predictions[next(iter(predictions))].shape[1]
 
             # NOTE: Temp fix for dimention problems
-            attr_truth_idx = [attr_truth_idx[0] for _ in range(length)]
-            attr_truth_idx = torch.stack(attr_truth_idx)
+            # FIX: Might want to use CLIP on the value where the index is pointing, then the dimentions will be correct. In `common` after the flatten compare the size of the CLIP. So the lenght of the CLIP is the lenght for eacn single element.
+            attr_truth_idx = attr_truth_idx[0].unsqueeze(0).expand(length, -1).clone().squeeze()
 
             # NOTE: Temp fix for dimention problems
-            obj_truth_idx = [obj_truth_idx[0] for _ in range(length)]
-            obj_truth_idx = torch.stack(obj_truth_idx)
+            obj_truth_idx = obj_truth_idx[0].unsqueeze(0).expand(length, -1).clone().squeeze()
 
-            pair_truth_idx = [pair_truth_idx[0] for _ in range(length)]
-            pair_truth_idx = torch.stack(pair_truth_idx)
+            # NOTE: Temp fix for dimention problems
+            pair_truth_idx = pair_truth_idx[0].unsqueeze(0).expand(length, -1).clone().squeeze()
 
             all_pred.append(predictions)
             all_attr_gt_idx.append(attr_truth_idx)
@@ -257,7 +256,10 @@ def test(image_extractor, model, testloader, evaluator,  args, threshold=None, p
                 all_pred_dict[k] = torch.cat(temp_list)  # torch.Shape([420, 250])
 
         # Calculate best unseen accuracy
+        print('Score model:')
         results = evaluator.score_model(all_pred_dict, all_obj_gt_idx, bias=args.bias, topk=args.topk)
+
+        print('Evaluate predictions:')
         stats = evaluator.evaluate_predictions(results, all_attr_gt_idx, all_obj_gt_idx, all_pair_gt_idx, all_pred_dict, topk=args.topk)
 
         result = ''

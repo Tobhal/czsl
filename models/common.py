@@ -5,6 +5,9 @@ import numpy as np
 import copy
 from scipy.stats import hmean
 
+from progress.bar import Bar
+from tqdm import tqdm
+
 from utils.dbe import dbe
 
 import math
@@ -278,6 +281,8 @@ class Evaluator:
             obj_truth: Ground truth object
         Returns
             results: dict of results in 3 settings
+
+        ERROR: Predicting all objects to be index 0. This is wrong. All attrs are also predicted to be 0 but this is correct for now.
         '''
         def get_pred_from_scores(_scores, topk, flatten=True, p=False):
             '''
@@ -288,24 +293,35 @@ class Evaluator:
 
             pair_pred = pair_pred.to(device)
 
+            if p:
+                dbe(_scores.shape, _scores, pair_pred.shape, pair_pred, should_exit=False)
+
             if flatten:
                 pair_pred = pair_pred.contiguous().view(-1)
-
-            # dbe(self.pairs[pair_pred].shape)
 
             attr_pred, obj_pred = self.pairs[pair_pred][:, 0].view(-1, topk), \
                 self.pairs[pair_pred][:, 1].view(-1, topk)
 
+            if p:
+                dbe(attr_pred.shape, attr_pred, obj_pred.shape, obj_pred)
+
             return (attr_pred, obj_pred)
+
+        bar = Bar('Mask', max=3)
 
         results = {}
         orig_scores = scores.clone()
+
         mask = self.seen_mask.repeat(scores.shape[0],1) # Repeat mask along pairs dimension
         scores[~mask] += bias # Add bias to test pairs
+
 
         # Unbiased setting
         
         # Open world setting --no mask, all pairs of the dataset
+        bar.message = 'open'
+        bar.next()
+
         results.update({'open': get_pred_from_scores(scores, topk)})
         results.update({'unbiased_open': get_pred_from_scores(orig_scores, topk)})
         # Closed world setting - set the score for all Non test pairs to -1e10, 
@@ -316,6 +332,9 @@ class Evaluator:
         closed_orig_scores = orig_scores.clone()
         closed_orig_scores[~mask] = -1e10
 
+        bar.message = 'closed'
+        bar.next()
+
         results.update({'closed': get_pred_from_scores(closed_scores, topk)})
         results.update({'unbiased_closed': get_pred_from_scores(closed_orig_scores, topk)})
 
@@ -323,11 +342,19 @@ class Evaluator:
         # dbe(obj_truth, self.oracle_obj_mask)
         
         mask = self.oracle_obj_mask[obj_truth_idx]
+
+        # mask = mask.squeeze(1)
+
         oracle_obj_scores = scores.clone()
+        # dbe(mask.shape, oracle_obj_scores.shape)
         oracle_obj_scores[~mask] = -1e10
 
         oracle_obj_scores_unbiased = orig_scores.clone()
         oracle_obj_scores_unbiased[~mask] = -1e10
+
+        bar.message = 'object oracle'
+        bar.next()
+        bar.finish()
 
         results.update({'object_oracle': get_pred_from_scores(oracle_obj_scores, 1)})
         results.update({'object_oracle_unbiased': get_pred_from_scores(oracle_obj_scores_unbiased, 1)})
@@ -389,6 +416,7 @@ class Evaluator:
 
         orig_scores = scores.clone()
         # NOTE: Called here
+        # dbe(scores.shape, obj_truth_idx, obj_truth_idx.shape)
         results = self.generate_predictions(scores, obj_truth_idx, bias, topk)
         results['scores'] = orig_scores
         return results
@@ -415,6 +443,7 @@ class Evaluator:
         return results
 
     def evaluate_predictions(self, predictions, attr_truth, obj_truth, pair_truth, allpred, topk = 1):
+        
         # Go to CPU
         attr_truth, obj_truth, pair_truth = attr_truth.to('cpu'), obj_truth.to('cpu'), pair_truth.to('cpu')
 
@@ -429,14 +458,15 @@ class Evaluator:
         # FIX: I am trying to implement the fix in the datloader first, to see if I can to the cahnge there first
         # If that is not the problem then I need to maby convert the values somewhere.
         # dbe(pairs_truth, self.train_pairs)
-
+    
         seen_ind, unseen_ind = [], []
-        for i in range(len(attr_truth)):
-            if pair_truth[i] in self.train_pairs:
+        train_pairs_set = set(self.train_pairs)
+
+        for i in range(len(attr_truth)), desc='Checking seen ind':
+            if pair_truth[i] in train_pairs_set:
                 seen_ind.append(i)
             else:
                 unseen_ind.append(i)
-
 
         seen_ind, unseen_ind = torch.LongTensor(seen_ind), torch.LongTensor(unseen_ind)
         def _process(_scores):
@@ -488,9 +518,12 @@ class Evaluator:
 
         # attr_truth = attr_truth.view(predictions['object_oracle'][0][:, 0].shape)
 
+
         ##################### Match in places where corrent object
         # FIX: Not use the `:420`
         # dbe(attr_truth, attr_truth.shape, predictions['object_oracle'][0].shape)
+
+        bar = Bar('flatten', max=5)
 
         attr_truth = attr_truth.contiguous().view(-1)
         obj_truth = obj_truth.contiguous().view(-1)
@@ -515,8 +548,15 @@ class Evaluator:
         predictions['object_oracle_unbiased'] = tuple(temp_list)
         """
 
+        # predictions = {key: (tup[0].to(device), tup[1].to(device)) for key, tup in predictions.items()}
+
+        bar.message = 'object oracle match'
+        bar.next()
         # NOTE: Change attr_truth to attr_truth with the CLIP encoding.
         obj_oracle_match = (attr_truth == predictions['object_oracle'][0][:, 0]).float()  #object is already conditioned
+
+        bar.message = 'object oracle match unbiased'
+        bar.next()
         obj_oracle_match_unbiased = (attr_truth == predictions['object_oracle_unbiased'][0][:, 0]).float()
 
         stats = dict(obj_oracle_match = obj_oracle_match, obj_oracle_match_unbiased = obj_oracle_match_unbiased)
@@ -524,11 +564,21 @@ class Evaluator:
         #################### Closed world
         # dbe(predictions['closed'][0].shape, predictions['unbiased_closed'][0].shape)
 
+        bar.message = 'closed scores'
+        bar.next()
         closed_scores = _process(predictions['closed'])
+
+        bar.message = 'unbiased closed scores'
+        bar.next()
         unbiased_closed = _process(predictions['unbiased_closed'])
+
         _add_to_dict(closed_scores, 'closed', stats)
         _add_to_dict(unbiased_closed, 'closed_ub', stats)
 
+        bar.next()
+        bar.finish()
+
+        print('calc auc')
         #################### Calculating AUC
         scores = predictions['scores']
         # getting score for each ground truth class
