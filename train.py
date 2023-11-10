@@ -257,6 +257,8 @@ def test(epoch, image_extractor, model, test_loader, evaluator, writer, args, lo
         # NOTE: Squeeze the extra dimention away so this prediction shape equals the prediction shape from the original czsl code
         predictions = {key: value.squeeze() for key, value in predictions.items()}
 
+        dbe(predictions)
+
         attr_truth_idx, obj_truth_idx, pair_truth_idx = (
             data['attr']['truth_idx'],
             data['obj']['truth_idx'],
@@ -268,13 +270,13 @@ def test(epoch, image_extractor, model, test_loader, evaluator, writer, args, lo
 
         # NOTE: Temp fix for dimention problems
         # FIX: Might want to use CLIP on the value where the index is pointing, then the dimentions will be correct. In `common` after the flatten compare the size of the CLIP. So the lenght of the CLIP is the lenght for eacn single element.
-        # attr_truth_idx = attr_truth_idx[0].unsqueeze(0).expand(length, -1).clone().squeeze()
+        attr_truth_idx = attr_truth_idx[0].unsqueeze(0).expand(length, -1).clone().squeeze()
 
         # NOTE: Temp fix for dimention problems
-        # obj_truth_idx = obj_truth_idx[0].unsqueeze(0).expand(length, -1).clone().squeeze()
+        obj_truth_idx = obj_truth_idx[0].unsqueeze(0).expand(length, -1).clone().squeeze()
 
         # NOTE: Temp fix for dimention problems
-        # pair_truth_idx = pair_truth_idx[0].unsqueeze(0).expand(length, -1).clone().squeeze()
+        pair_truth_idx = pair_truth_idx[0].unsqueeze(0).expand(length, -1).clone().squeeze()
 
         all_pred.append(predictions)
         all_attr_gt_idx.append(attr_truth_idx)
