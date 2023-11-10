@@ -25,6 +25,7 @@ def compute_cosine_similarity(names, weights, return_dict=True):
 class CompCos(nn.Module):
 
     def __init__(self, dset, args):
+        # NOTE: All data is formattet the same as in original code
         super(CompCos, self).__init__()
         self.args = args
         self.dset = dset
@@ -44,23 +45,25 @@ class CompCos(nn.Module):
         self.val_attrs_idx, self.val_objs_idx, self.val_pairs_idx = get_all_ids(self.dset.pairs)
 
         # for indivual projections
-        self.uniq_attrs, self.uniq_objs = torch.arange(len(self.dset.attrs)).long().to(device), \
-                                          torch.arange(len(self.dset.objs)).long().to(device)
+        self.uniq_attrs_idx, self.uniq_objs_idx = torch.arange(len(self.dset.attrs)).long().to(device), \
+                                                  torch.arange(len(self.dset.objs)).long().to(device)
+        
         self.factor = 2
 
         self.scale = self.args.cosine_scale
 
         if dset.open_world:
             self.train_forward = self.train_forward_open
+
             self.known_pairs = dset.train_pairs
             seen_pair_set = set(self.known_pairs)
+
             mask = [1 if pair in seen_pair_set else 0 for pair in dset.pairs]
             self.seen_mask = torch.BoolTensor(mask).to(device) * 1.
-
+            
             self.activated = False
 
             # Init feasibility-related variables
-            # FIX: Change these values to be the real value?
             self.attrs = dset.attrs
             self.objs = dset.objs
             self.possible_pairs = dset.pairs
@@ -247,19 +250,34 @@ class CompCos(nn.Module):
 
     def train_forward_open(self, x):
         img, attrs, objs, pairs = x[0], x[1], x[2], x[3]
-        # img_feats = self.image_embedder(img)
+
+        """
+        paris = torch.Shaoe([500])
+        img = torch.Shape([1, 1, 1395])
+
+        self.train_attrs = torch.Shape([500]) | object index? [0-1]
+        self.train_objs = torch.Shape([500])  | attr index?   [0-249]
+
+        pair_embed = torch.Size([1395, 195])
+        pair_pred = torch.Size([1, 1, 500])
+        """
 
         pair_embed = self.compose(self.train_attrs, self.train_objs).permute(1, 0)
-        img_feats_normed = F.normalize(img, dim=1)
+        img_feats_normed = F.normalize(img, dim=1)        
 
         pair_pred = torch.matmul(img_feats_normed, pair_embed)
+
         pair_pred = pair_pred.squeeze(0)
 
+        pairs = pairs.squeeze(0)
+
+        """
         if len(pair_pred.shape) == 1:  # if pair_pred is 1D
             pair_pred = pair_pred.unsqueeze(0)  # make it 2D
 
         if len(pairs.shape) > 1:  # if pairs is not 1D
             pairs = pairs.squeeze()  # make it 1D
+        """
 
         # If the batch sizes don't match, adjust them
         if pair_pred.shape[0] != pairs.shape[0]:
@@ -267,6 +285,8 @@ class CompCos(nn.Module):
                 pairs = pairs[:pair_pred.shape[0]]
             else:
                 pair_pred = pair_pred[:pairs.shape[0]]
+
+        # dbe(pair_pred.shape, pairs.shape)
 
         if self.activated:
             pair_pred += (1 - self.seen_mask) * self.feasibility_margin
@@ -280,6 +300,7 @@ class CompCos(nn.Module):
 
     def train_forward_closed(self, x):
         img, attrs, objs, pairs = x[0], x[1], x[2], x[3]
+
         img_feats = self.image_embedder(img)
 
         pair_embed = self.compose(self.train_attrs, self.train_objs).permute(1, 0)

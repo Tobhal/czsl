@@ -307,8 +307,6 @@ class Evaluator:
 
             return (attr_pred, obj_pred)
 
-        bar = Bar('Mask', max=3)
-
         results = {}
         orig_scores = scores.clone()
 
@@ -319,9 +317,6 @@ class Evaluator:
         # Unbiased setting
         
         # Open world setting --no mask, all pairs of the dataset
-        bar.message = 'open'
-        bar.next()
-
         results.update({'open': get_pred_from_scores(scores, topk)})
         results.update({'unbiased_open': get_pred_from_scores(orig_scores, topk)})
         # Closed world setting - set the score for all Non test pairs to -1e10, 
@@ -331,9 +326,6 @@ class Evaluator:
         closed_scores[~mask] = -1e10 
         closed_orig_scores = orig_scores.clone()
         closed_orig_scores[~mask] = -1e10
-
-        bar.message = 'closed'
-        bar.next()
 
         results.update({'closed': get_pred_from_scores(closed_scores, topk)})
         results.update({'unbiased_closed': get_pred_from_scores(closed_orig_scores, topk)})
@@ -351,10 +343,6 @@ class Evaluator:
 
         oracle_obj_scores_unbiased = orig_scores.clone()
         oracle_obj_scores_unbiased[~mask] = -1e10
-
-        bar.message = 'object oracle'
-        bar.next()
-        bar.finish()
 
         results.update({'object_oracle': get_pred_from_scores(oracle_obj_scores, 1)})
         results.update({'object_oracle_unbiased': get_pred_from_scores(oracle_obj_scores_unbiased, 1)})
@@ -385,6 +373,9 @@ class Evaluator:
         '''
         Wrapper function to call generate_predictions for manifold models
         '''
+        # torch.set_printoptions(profile='full')
+        # dbe(scores)
+        # dbe(obj_truth_idx.shape, obj_truth_idx)
         # dbe(scores[('Bengali', 'ধরমতলা') ].shape, obj_truth_idx.shape)
 
         # scores[...] = torch.Size([420, 250])
@@ -462,7 +453,7 @@ class Evaluator:
         seen_ind, unseen_ind = [], []
         train_pairs_set = set(self.train_pairs)
 
-        for i in range(len(attr_truth)), desc='Checking seen ind':
+        for i in range(len(attr_truth)):
             if pair_truth[i] in train_pairs_set:
                 seen_ind.append(i)
             else:
@@ -523,8 +514,6 @@ class Evaluator:
         # FIX: Not use the `:420`
         # dbe(attr_truth, attr_truth.shape, predictions['object_oracle'][0].shape)
 
-        bar = Bar('flatten', max=5)
-
         attr_truth = attr_truth.contiguous().view(-1)
         obj_truth = obj_truth.contiguous().view(-1)
 
@@ -550,13 +539,9 @@ class Evaluator:
 
         # predictions = {key: (tup[0].to(device), tup[1].to(device)) for key, tup in predictions.items()}
 
-        bar.message = 'object oracle match'
-        bar.next()
         # NOTE: Change attr_truth to attr_truth with the CLIP encoding.
         obj_oracle_match = (attr_truth == predictions['object_oracle'][0][:, 0]).float()  #object is already conditioned
 
-        bar.message = 'object oracle match unbiased'
-        bar.next()
         obj_oracle_match_unbiased = (attr_truth == predictions['object_oracle_unbiased'][0][:, 0]).float()
 
         stats = dict(obj_oracle_match = obj_oracle_match, obj_oracle_match_unbiased = obj_oracle_match_unbiased)
@@ -564,19 +549,12 @@ class Evaluator:
         #################### Closed world
         # dbe(predictions['closed'][0].shape, predictions['unbiased_closed'][0].shape)
 
-        bar.message = 'closed scores'
-        bar.next()
         closed_scores = _process(predictions['closed'])
 
-        bar.message = 'unbiased closed scores'
-        bar.next()
         unbiased_closed = _process(predictions['unbiased_closed'])
 
         _add_to_dict(closed_scores, 'closed', stats)
         _add_to_dict(unbiased_closed, 'closed_ub', stats)
-
-        bar.next()
-        bar.finish()
 
         print('calc auc')
         #################### Calculating AUC

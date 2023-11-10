@@ -163,6 +163,8 @@ def main():
             with torch.no_grad():  # todo: might not be needed
                 test(epoch, image_extractor, model, testloader, evaluator_val, writer, args, logpath)
 
+        # exit()
+
     write_log(best_auc, best_hm)
 
 
@@ -181,10 +183,10 @@ def train_normal(epoch, image_extractor, model, train_loader, optimizer, writer)
         # data = [d.to(device) for d in data]
 
         model_data = [
-            data['image']['pred_image'].to(device),
-            data['attr']['truth_idx'].to(device),
-            data['obj']['truth_idx'].to(device),
-            data['pairs']['all'].to(device)
+            data['image']['pred_image'].to(device), # torch.Size([1, 1, 1395]) | phosc representation
+            data['attr']['truth_idx'].to(device),   # torch.Size([1]) | attribute index
+            data['obj']['truth_idx'].to(device),    # torch.Size([1]) | object index
+            data['pairs']['all'].to(device)         # torch.Size([1, 500]) | pair index
         ]
 
         if image_extractor:
@@ -211,7 +213,7 @@ def test(epoch, image_extractor, model, test_loader, evaluator, writer, args, lo
 
     def save_checkpoint(filename):
 
-        dbe(model.state_dict().keys(), should_exit=False)
+        # dbe(model.state_dict().keys(), should_exit=False)
 
         state = {
             'net': model.state_dict(),
@@ -264,18 +266,15 @@ def test(epoch, image_extractor, model, test_loader, evaluator, writer, args, lo
         # """
         length = predictions[next(iter(predictions))].shape[0]
 
-        # dbe(attr_truth_idx, obj_truth_idx, pair_truth_idx)
-
         # NOTE: Temp fix for dimention problems
         # FIX: Might want to use CLIP on the value where the index is pointing, then the dimentions will be correct. In `common` after the flatten compare the size of the CLIP. So the lenght of the CLIP is the lenght for eacn single element.
-        attr_truth_idx = attr_truth_idx[0].unsqueeze(0).expand(length, -1).clone().squeeze()
+        # attr_truth_idx = attr_truth_idx[0].unsqueeze(0).expand(length, -1).clone().squeeze()
 
         # NOTE: Temp fix for dimention problems
-        obj_truth_idx = obj_truth_idx[0].unsqueeze(0).expand(length, -1).clone().squeeze()
+        # obj_truth_idx = obj_truth_idx[0].unsqueeze(0).expand(length, -1).clone().squeeze()
 
         # NOTE: Temp fix for dimention problems
-        pair_truth_idx = pair_truth_idx[0].unsqueeze(0).expand(length, -1).clone().squeeze()
-        # """
+        # pair_truth_idx = pair_truth_idx[0].unsqueeze(0).expand(length, -1).clone().squeeze()
 
         all_pred.append(predictions)
         all_attr_gt_idx.append(attr_truth_idx)
@@ -300,6 +299,7 @@ def test(epoch, image_extractor, model, test_loader, evaluator, writer, args, lo
         real_obj_gt = torch.cat(real_obj_gt, dim=0).to(device)   # torch.Size([420, 13, 77])
 
         # dbe(len(all_pred))
+    # dbe(len(all_pred), len(all_obj_gt_idx))
 
     # dbe(len(all_pred[0].keys()), len(all_pred), len(all_pred[0].keys()) + len(all_pred))
 
@@ -329,7 +329,6 @@ def test(epoch, image_extractor, model, test_loader, evaluator, writer, args, lo
     # dbe(all_obj_gt)
     # NOTE: Called here. all_obj_gt, needs to be the real value?
 
-    print('Score model:')
     results = evaluator.score_model(all_pred_dict, all_obj_gt_idx, bias=args.bias, topk=args.topk)
     """
     {
@@ -369,7 +368,6 @@ def test(epoch, image_extractor, model, test_loader, evaluator, writer, args, lo
 
     # dbe(all_attr_gt_idx, all_attr_gt_idx.shape, results['object_oracle'][0][:, 0], results['object_oracle'][0][:, 0].shape)
     # stats = evaluator.evaluate_predictions(results, real_attr_gt, all_obj_gt_idx, all_pair_gt_idx, all_pred_dict, topk=args.topk)
-    print('Evaluate predictions:')
     stats = evaluator.evaluate_predictions(results, all_attr_gt_idx, all_obj_gt_idx, all_pair_gt_idx, all_pred_dict, topk=args.topk)
 
     stats['a_epoch'] = epoch

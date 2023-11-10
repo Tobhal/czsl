@@ -170,7 +170,7 @@ class CompositionDataset(Dataset):
         set_phoc_version(self.args.phosc_version)        
 
         self.attrs, self.objs, self.pairs, self.train_pairs, self.val_pairs, self.test_pairs, self.train_data, self.val_data, self.test_data = self.parse_split()
-        
+
         if p:
             dbe(len(self.attrs), len(self.objs))
 
@@ -297,17 +297,17 @@ class CompositionDataset(Dataset):
 
                 data = []
 
-                for image, word in tqdm(pairs, desc=f'Prepearing pairs, {phase}'):
+                for image, word, language in tqdm(pairs, desc=f'Prepearing pairs, {phase}'):
                     data.append([
                         # Image path
                         ospj(phase, image),
                         # Attrs
-                        self.args.language_name,
+                        language,
                         # Obj
                         word
                     ])
 
-                pairs = [[self.args.language_name, line[1]] for line in pairs]
+                pairs = [[line[2], line[1]] for line in pairs]
                 pairs = list(map(tuple, pairs))
 
             attrs, objs = zip(*pairs)

@@ -7,8 +7,16 @@ from os import PathLike
 # Global variable to control printing of caller details
 PRINT_CALLER_DETAILS = False
 
+# Global vairable to control if it should print on calls where it should not exit
+PRINT_WHEN_NOT_EXIT = False
+
 # Global variable to controll if program should exit after debug printing
 EXIT_AFTER_PRINT = True
+
+# Global counter and limit for the number of calls before exiting
+CALL_COUNT = 0
+CALL_LIMIT = 1  # Set this to the X number of times you want to call the function
+
 
 def list_files(directory: PathLike) -> bool:
     return os.listdir(directory)
@@ -18,9 +26,14 @@ def file_exists(filepath: PathLike) -> bool:
     return os.path.isfile(filepath)
 
 
-def dbe(*args, should_exit=EXIT_AFTER_PRINT, print_caller_details=PRINT_CALLER_DETAILS):
+def dbe(*args, should_exit=EXIT_AFTER_PRINT, print_caller_details=PRINT_CALLER_DETAILS, calls_before_exit=CALL_LIMIT, print_when_not_exit=PRINT_WHEN_NOT_EXIT):
     """Print names and values of input variables. Exit the program if should_exit is True."""
+    global CALL_COUNT
+    CALL_COUNT += 1
 
+    if CALL_COUNT < calls_before_exit and not print_when_not_exit:
+        return  # Do nothing until the CALL_LIMIT is reached
+    
     if not args:
         raise ValueError("Function requires at least one argument")
 
@@ -59,7 +72,7 @@ def dbe(*args, should_exit=EXIT_AFTER_PRINT, print_caller_details=PRINT_CALLER_D
         else:
             print(f"{var_name_strip} = {arg}")
 
-    if should_exit:
+    if should_exit and CALL_COUNT >= calls_before_exit:
         exit()
 
 if __name__ == '__main__':
@@ -76,6 +89,11 @@ if __name__ == '__main__':
 
     test_set = {"apple", "banana", "cherry"}
 
+
+    dbe(test_var, test_array, test_dict, test_set, calls_before_exit=2, print_when_not_exit=True)
+
     test_tuple = ("apple", "banana", "cherry")
 
-    dbe(test_var, test_array, test_dict, test_set, test_tuple)
+    dbe(test_tuple)
+
+    dbe('not print')
