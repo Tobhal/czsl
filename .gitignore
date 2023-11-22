@@ -130,6 +130,7 @@ dmypy.json
 
 # IDE
 .vscode/
+.fleet/
 
 #logs and dataset
 cv/*
@@ -144,3 +145,5 @@ tensor-completion/*
 *.csv
 *.txt
 notebooks/._mit_graph.pdf
+DATA_ROOT/
+pretrained_model/
