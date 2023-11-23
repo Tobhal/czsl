@@ -52,6 +52,11 @@ On UT-Zappos, the command is:
     python train.py --config configs/compcos/mit/compcos.yml
 ```
 
+**Bengali** To train on bengali things:
+```
+    python train.py --config configs/bengali/bengali.yml
+```
+
 To run experiments in the open world setting for a non-open world method, just add `--open_world` after the command. E.g. for running SymNet in the open world scenario on MitStates, the command is:
 ```
     python train.py --config configs/baselines/mit/symnet.yml --open_world

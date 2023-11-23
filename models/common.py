@@ -5,6 +5,8 @@ import numpy as np
 import copy
 from scipy.stats import hmean
 
+from utils.dbe import dbe
+
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 class MLP(nn.Module):
@@ -215,9 +217,12 @@ class Evaluator:
 
         self.dset = dset
 
+        all_pairs = dset.pairs + dset.train_pairs
+
         # Convert text pairs to idx tensors: [('sliced', 'apple'), ('ripe', 'apple'), ...] --> torch.LongTensor([[0,1],[1,1], ...])
         pairs = [(dset.attr2idx[attr], dset.obj2idx[obj]) for attr, obj in dset.pairs]
         self.train_pairs = [(dset.attr2idx[attr], dset.obj2idx[obj]) for attr, obj in dset.train_pairs]
+        self.all_pairs = [(dset.attr2idx[attr], dset.obj2idx[obj]) for attr, obj in dset.train_pairs]
         self.pairs = torch.LongTensor(pairs)
 
         # Mask over pairs that occur in closed world
@@ -379,9 +384,9 @@ class Evaluator:
         attr_truth, obj_truth, pair_truth = attr_truth.to('cpu'), obj_truth.to('cpu'), pair_truth.to('cpu')
 
         pairs = list(
-            zip(list(attr_truth.numpy()), list(obj_truth.numpy())))
+            zip(list(attr_truth.numpy()), list(obj_truth.numpy()))
+        )
         
-
         seen_ind, unseen_ind = [], []
         for i in range(len(attr_truth)):
             if pairs[i] in self.train_pairs:
@@ -389,9 +394,8 @@ class Evaluator:
             else:
                 unseen_ind.append(i)
 
-        
         seen_ind, unseen_ind = torch.LongTensor(seen_ind), torch.LongTensor(unseen_ind)
-        def _process(_scores):
+        def _process(_scores, p=False):
             # Top k pair accuracy
             # Attribute, object and pair
             attr_match = (attr_truth.unsqueeze(1).repeat(1, topk) == _scores[0][:, :topk])
@@ -482,11 +486,14 @@ class Evaluator:
 
         for bias in biaslist:
             scores = base_scores.clone()
+
             results = self.score_fast_model(scores, obj_truth, bias = bias, topk = topk)
             results = results['closed'] # we only need biased
             results = _process(results)
+
             seen_match = float(results[3].mean())
             unseen_match = float(results[4].mean())
+
             seen_accuracy.append(seen_match)
             unseen_accuracy.append(unseen_match)
 
@@ -498,13 +505,16 @@ class Evaluator:
         for key in stats:
             stats[key] = float(stats[key].mean())
 
-        harmonic_mean = hmean([seen_accuracy, unseen_accuracy], axis = 0)
+        harmonic_mean = unseen_accuracy
+
         max_hm = np.max(harmonic_mean)
         idx = np.argmax(harmonic_mean)
+
         if idx == len(biaslist):
             bias_term = 1e3
         else:
             bias_term = biaslist[idx]
+
         stats['biasterm'] = float(bias_term)
         stats['best_unseen'] = np.max(unseen_accuracy)
         stats['best_seen'] = np.max(seen_accuracy)

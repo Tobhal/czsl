@@ -1,6 +1,7 @@
 import argparse
 
-DATA_FOLDER = "ROOT_FOLDER"
+DATA_FOLDER = "../data/czsl/DATA_ROOT/"
+
 parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
 parser.add_argument('--config', default='configs/args.yml', help='path of the config file (training only)')

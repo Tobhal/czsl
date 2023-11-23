@@ -1,7 +1,15 @@
 import torch
 import numpy as np
+import clip
 from flags import DATA_FOLDER
-def load_word_embeddings(emb_type, vocab):
+
+from timm import create_model
+from modules.utils import set_phos_version, set_phoc_version, generate_label
+
+from utils.dbe import dbe
+
+
+def load_word_embeddings(emb_type, vocab, state):
     if emb_type == 'glove':
         embeds = load_glove_embeddings(vocab)
     elif emb_type == 'fasttext':
@@ -33,9 +41,62 @@ def load_word_embeddings(emb_type, vocab):
         embeds3 = load_glove_embeddings(vocab)
         embeds = torch.cat([embeds1, embeds2, embeds3], dim = 1)
         print('Combined embeddings are ',embeds.shape)
+    elif emb_type == 'clip':
+        if state == 'attrs':
+            embeds = load_bengali_attrs_embeddings(vocab)
+        elif state == 'objs':
+            embeds = load_bengali_objs_embeddings(vocab)
+        
+        print('Embedding is: ',embeds.shape)
     else:
         raise ValueError('Invalid embedding')
     return embeds
+
+def load_bengali_attrs_embeddings(vocab: str):
+    print('Loading CLIP embeddings')
+    pass
+
+def load_bengali_objs_embeddings(vocab: str):
+    set_phos_version('ben')
+    set_phoc_version('ben')
+
+    pass
+
+
+
+
+
+def load_clip_embeddings(vocab):
+    """
+    Convert the words to CLIP vector.
+    
+    :param vocab list of words
+    
+    :return CLIP embedings
+    """
+    print('Loading CLIP embeddings')
+    # Load CLIP model
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model, preprocess = clip.load("ViT-B/32", device=device)
+    
+    print('Tokenize')
+    text = clip.tokenize(vocab).to(device)
+    
+    print('Text features')
+    with torch.no_grad():
+        text_features = model.encode_text(text)
+        
+    print('Done loading CLIP embeddings')
+    return text_features
+
+def load_phosc_embeddings(vocab):
+    print('Loading PHOSC embeddings')
+    set_phos_version('ben')
+    
+    text_features = [generate_label(word) for word in vocab]
+
+    return torch.Tensor(text_features)
+    
 
 def load_fasttext_embeddings(vocab):
     custom_map = {
@@ -181,3 +242,6 @@ def load_glove_embeddings(vocab):
     embeds = torch.stack(embeds)
     print('Glove Embeddings loaded, total embeddings: {}'.format(embeds.size()))
     return embeds
+
+if __name__ == '__main__':
+    print('word embeddings')

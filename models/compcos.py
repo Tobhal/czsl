@@ -4,6 +4,11 @@ import torch.nn.functional as F
 from .word_embedding import load_word_embeddings
 from .common import MLP
 
+from utils.dbe import dbe
+from modules.utils import gen_shape_description
+
+import clip
+
 from itertools import product
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -30,12 +35,15 @@ class CompCos(nn.Module):
         def get_all_ids(relevant_pairs):
             # Precompute validation pairs
             attrs, objs = zip(*relevant_pairs)
+
             attrs = [dset.attr2idx[attr] for attr in attrs]
             objs = [dset.obj2idx[obj] for obj in objs]
             pairs = [a for a in range(len(relevant_pairs))]
+
             attrs = torch.LongTensor(attrs).to(device)
             objs = torch.LongTensor(objs).to(device)
             pairs = torch.LongTensor(pairs).to(device)
+
             return attrs, objs, pairs
 
         # Validation
@@ -97,22 +105,22 @@ class CompCos(nn.Module):
             layers.append(a)
 
 
-        self.image_embedder = MLP(dset.feat_dim, int(args.emb_dim), relu=args.relu, num_layers=args.nlayers,
-                                  dropout=self.args.dropout,
-                                  norm=self.args.norm, layers=layers)
+        # self.image_embedder = MLP(dset.feat_dim, int(args.emb_dim), relu=args.relu, num_layers=args.nlayers, dropout=self.args.dropout, norm=self.args.norm, layers=layers)
 
         # Fixed
         self.composition = args.composition
 
         input_dim = args.emb_dim
         self.attr_embedder = nn.Embedding(len(dset.attrs), input_dim)
-        self.obj_embedder = nn.Embedding(len(dset.objs), input_dim)
+        self.obj_embedder = nn.Embedding(len(dset.objs) * 13, input_dim)    # FIX is this correct?
 
         # init with word embeddings
         if args.emb_init:
-            pretrained_weight = load_word_embeddings(args.emb_init, dset.attrs)
+            # pretrained_weight = load_word_embeddings(args.emb_init, dset.attrs, 'attrs')
+            pretrained_weight = self.gen_word_attrs_embeddings(dset.attrs)
             self.attr_embedder.weight.data.copy_(pretrained_weight)
-            pretrained_weight = load_word_embeddings(args.emb_init, dset.objs)
+
+            pretrained_weight = self.get_word_objs_embeddings(dset.objs)
             self.obj_embedder.weight.data.copy_(pretrained_weight)
 
         # static inputs
@@ -123,8 +131,38 @@ class CompCos(nn.Module):
                 param.requires_grad = False
 
         # Composition MLP
-        self.projection = nn.Linear(input_dim * 2, args.emb_dim)
+        self.projection = nn.Linear(input_dim * 2, args.phos_size + args.phoc_size)
 
+    def gen_word_attrs_embeddings(self, attrs):
+        embeds = []
+
+        for attr in attrs:
+            text = clip.tokenize(attr).to(device)
+            
+            with torch.no_grad():
+                text_features = self.args.clip_model.encode_text(text)
+            
+            embeds.append(text_features)
+
+        embeds = torch.cat(embeds)
+
+        return embeds
+
+    def get_word_objs_embeddings(self, objs):
+        embeds = []
+
+        for obj in objs:
+            shape_description = gen_shape_description(obj)
+            text = clip.tokenize(shape_description).to(device)
+
+            with torch.no_grad():
+                text_features = self.args.clip_model.encode_text(text)
+
+            embeds.append(text_features)
+
+        embeds = torch.cat(embeds)
+
+        return embeds
 
     def freeze_representations(self):
         print('Freezing representations')
@@ -138,9 +176,12 @@ class CompCos(nn.Module):
 
     def compose(self, attrs, objs):
         attrs, objs = self.attr_embedder(attrs), self.obj_embedder(objs)
+
         inputs = torch.cat([attrs, objs], 1)
+
         output = self.projection(inputs)
         output = F.normalize(output, dim=1)
+
         return output
 
 
@@ -193,15 +234,14 @@ class CompCos(nn.Module):
 
 
     def val_forward(self, x):
-        img = x[0]
-        img_feats = self.image_embedder(img)
+        img_feats = x[0]
         img_feats_normed = F.normalize(img_feats, dim=1)
         pair_embeds = self.compose(self.val_attrs, self.val_objs).permute(1, 0)  # Evaluate all pairs
         score = torch.matmul(img_feats_normed, pair_embeds)
 
         scores = {}
         for itr, pair in enumerate(self.dset.pairs):
-            scores[pair] = score[:, self.dset.all_pair2idx[pair]]
+            scores[pair] = score[0, 0, self.dset.all_pair2idx[pair]]
 
         return None, scores
 
@@ -225,11 +265,14 @@ class CompCos(nn.Module):
 
 
     def train_forward_open(self, x):
-        img, attrs, objs, pairs = x[0], x[1], x[2], x[3]
-        img_feats = self.image_embedder(img)
+        img_feats, attrs, objs, pairs = x[0], x[1], x[2], x[3]
+
+        # img_feats = self.image_embedder(img)
 
         pair_embed = self.compose(self.train_attrs, self.train_objs).permute(1, 0)
         img_feats_normed = F.normalize(img_feats, dim=1)
+
+        img_feats_normed = img_feats_normed.squeeze(0)
 
         pair_pred = torch.matmul(img_feats_normed, pair_embed)
 
