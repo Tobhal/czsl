@@ -283,6 +283,8 @@ class CompCos(nn.Module):
             pair_pred = pair_pred * self.seen_mask + (1 - self.seen_mask) * (-10)
             loss_cos = F.cross_entropy(self.scale * pair_pred, pairs)
 
+        dbe(self.activated, loss_cos)
+
         return loss_cos.mean(), None
 
 

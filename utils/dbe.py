@@ -5,7 +5,7 @@ import os
 from os import PathLike
 
 # Global variable to control printing of caller details
-PRINT_CALLER_DETAILS = False
+PRINT_CALLER_DETAILS = True
 
 # Global vairable to control if it should print on calls where it should not exit
 PRINT_WHEN_NOT_EXIT = False

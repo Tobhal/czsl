@@ -115,7 +115,7 @@ def main():
 
     train = train_normal
 
-    evaluator_val =  Evaluator(testset, model)
+    evaluator_val = Evaluator(testset, model)
 
     print(model)
 
@@ -123,29 +123,35 @@ def main():
     # Load checkpoint
     if args.load is not None:
         checkpoint = torch.load(args.load)
+
         if image_extractor:
             try:
                 image_extractor.load_state_dict(checkpoint['image_extractor'])
                 if args.freeze_features:
                     print('Freezing image extractor')
                     image_extractor.eval()
+
                     for param in image_extractor.parameters():
                         param.requires_grad = False
+
             except:
                 print('No Image extractor in checkpoint')
+
         model.load_state_dict(checkpoint['net'])
         start_epoch = checkpoint['epoch']
         print('Loaded model from ', args.load)
     
-    for epoch in tqdm(range(start_epoch, args.max_epochs + 1), desc = 'Current epoch'):
+    for epoch in tqdm(range(start_epoch, args.max_epochs + 1), desc='Current epoch'):
         train(epoch, image_extractor, model, trainloader, optimizer, writer)
-        if model.is_open and args.model=='compcos' and ((epoch+1)%args.update_feasibility_every)==0 :
+
+        if model.is_open and args.model == 'compcos' and ((epoch + 1) % args.update_feasibility_every) == 0:
             print('Updating feasibility scores')
             model.update_feasibility(epoch+1.)
 
         if epoch % args.eval_val_every == 0:
             with torch.no_grad(): # todo: might not be needed
                 test(epoch, image_extractor, model, testloader, evaluator_val, writer, args, logpath)
+                
     print('Best AUC achieved is ', best_auc)
     print('Best HM achieved is ', best_hm)
 
@@ -157,6 +163,7 @@ def train_normal(epoch, image_extractor, model, trainloader, optimizer, writer):
 
     if image_extractor:
         image_extractor.train()
+
     model.train() # Let's switch to training
 
     train_loss = 0.0 
@@ -165,7 +172,7 @@ def train_normal(epoch, image_extractor, model, trainloader, optimizer, writer):
 
         if image_extractor:
             data[0] = image_extractor(data[0])
-        
+
         loss, _ = model(data)
 
         optimizer.zero_grad()
@@ -175,6 +182,7 @@ def train_normal(epoch, image_extractor, model, trainloader, optimizer, writer):
         train_loss += loss.item()
 
     train_loss = train_loss/len(trainloader)
+
     writer.add_scalar('Loss/train_total', train_loss, epoch)
     print('Epoch: {}| Loss: {}'.format(epoch, round(train_loss, 2)))
 
@@ -191,8 +199,10 @@ def test(epoch, image_extractor, model, testloader, evaluator, writer, args, log
             'epoch': epoch,
             'AUC': stats['AUC']
         }
+
         if image_extractor:
             state['image_extractor'] = image_extractor.state_dict()
+        
         torch.save(state, os.path.join(logpath, 'ckpt_{}.t7'.format(filename)))
 
     if image_extractor:
@@ -220,8 +230,7 @@ def test(epoch, image_extractor, model, testloader, evaluator, writer, args, log
     if args.cpu_eval:
         all_attr_gt, all_obj_gt, all_pair_gt = torch.cat(all_attr_gt), torch.cat(all_obj_gt), torch.cat(all_pair_gt)
     else:
-        all_attr_gt, all_obj_gt, all_pair_gt = torch.cat(all_attr_gt).to('cpu'), torch.cat(all_obj_gt).to(
-            'cpu'), torch.cat(all_pair_gt).to('cpu')
+        all_attr_gt, all_obj_gt, all_pair_gt = torch.cat(all_attr_gt).to('cpu'), torch.cat(all_obj_gt).to('cpu'), torch.cat(all_pair_gt).to('cpu')
 
     all_pred_dict = {}
     # Gather values as dict of (attr, obj) as key and list of predictions as values
@@ -249,8 +258,10 @@ def test(epoch, image_extractor, model, testloader, evaluator, writer, args, log
     result = result + args.name
     print(f'Test Epoch: {epoch}')
     print(result)
+
     if epoch > 0 and epoch % args.save_every == 0:
         save_checkpoint(epoch)
+
     if stats['AUC'] > best_auc:
         best_auc = stats['AUC']
         print('New best AUC ', best_auc)
@@ -264,8 +275,10 @@ def test(epoch, image_extractor, model, testloader, evaluator, writer, args, log
     # Logs
     with open(ospj(logpath, 'logs.csv'), 'a') as f:
         w = csv.DictWriter(f, stats.keys())
+
         if epoch == 0:
             w.writeheader()
+
         w.writerow(stats)
 
 

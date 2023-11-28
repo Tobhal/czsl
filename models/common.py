@@ -518,7 +518,8 @@ class Evaluator:
         stats['biasterm'] = float(bias_term)
         stats['best_unseen'] = np.max(unseen_accuracy)
         stats['best_seen'] = np.max(seen_accuracy)
-        stats['AUC'] = area
+        # stats['AUC'] = area
+        stats['AUC'] = np.average(unseen_accuracy)
         stats['hm_unseen'] = unseen_accuracy[idx]
         stats['hm_seen'] = seen_accuracy[idx]
         stats['best_hm'] = max_hm
