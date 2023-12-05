@@ -396,20 +396,26 @@ class Evaluator:
 
         seen_ind, unseen_ind = torch.LongTensor(seen_ind), torch.LongTensor(unseen_ind)
         def _process(_scores, p=False):
+
             # Top k pair accuracy
             # Attribute, object and pair
             attr_match = (attr_truth.unsqueeze(1).repeat(1, topk) == _scores[0][:, :topk])
             obj_match = (obj_truth.unsqueeze(1).repeat(1, topk) == _scores[1][:, :topk])
+            
+            if p:
+                dbe(obj_truth, _scores[1].squeeze(), obj_match.squeeze(), calls_before_exit=30)
+            # dbe(obj_match)
 
             # Match of object pair
             match = (attr_match * obj_match).any(1).float()
             attr_match = attr_match.any(1).float()
             obj_match = obj_match.any(1).float()
+
             # Match of seen and unseen pairs
             seen_match = match[seen_ind]
             unseen_match = match[unseen_ind]
+
             ### Calculating class average accuracy
-            
             # local_score_dict = copy.deepcopy(self.test_pair_dict)
             # for pair_gt, pair_pred in zip(pairs, match):
             #     # print(pair_gt)
@@ -489,7 +495,7 @@ class Evaluator:
 
             results = self.score_fast_model(scores, obj_truth, bias = bias, topk = topk)
             results = results['closed'] # we only need biased
-            results = _process(results)
+            results = _process(results, p=False)
 
             seen_match = float(results[3].mean())
             unseen_match = float(results[4].mean())

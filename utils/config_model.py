@@ -9,6 +9,8 @@ from models.graph_method import GraphFull
 from models.symnet import Symnet
 from models.compcos import CompCos
 
+from utils.dbe import dbe
+
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
@@ -72,10 +74,12 @@ def configure_model(args, dataset):
     else:
         model_params = [param for name, param in model.named_parameters() if param.requires_grad]
         optim_params = [{'params':model_params}]
+
     if args.update_features:
         ie_parameters = [param for name, param in image_extractor.named_parameters()]
         optim_params.append({'params': ie_parameters,
                             'lr': args.lrg})
+        
     optimizer = optim.Adam(optim_params, lr=args.lr, weight_decay=args.wd)
 
     model.is_open = is_open

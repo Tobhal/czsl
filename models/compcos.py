@@ -100,12 +100,12 @@ class CompCos(nn.Module):
         except:
             self.args.fc_emb = [self.args.fc_emb]
         layers = []
+
         for a in self.args.fc_emb:
             a = int(a)
             layers.append(a)
 
-
-        # self.image_embedder = MLP(dset.feat_dim, int(args.emb_dim), relu=args.relu, num_layers=args.nlayers, dropout=self.args.dropout, norm=self.args.norm, layers=layers)
+        self.image_embedder = MLP(dset.feat_dim, dset.feat_dim, relu=args.relu, num_layers=args.nlayers, dropout=self.args.dropout, norm=self.args.norm, layers=layers)
 
         # Fixed
         self.composition = args.composition
@@ -166,10 +166,13 @@ class CompCos(nn.Module):
 
     def freeze_representations(self):
         print('Freezing representations')
+
         for param in self.image_embedder.parameters():
             param.requires_grad = False
+
         for param in self.attr_embedder.parameters():
             param.requires_grad = False
+
         for param in self.obj_embedder.parameters():
             param.requires_grad = False
 
@@ -265,14 +268,18 @@ class CompCos(nn.Module):
 
 
     def train_forward_open(self, x):
-        img_feats, attrs, objs, pairs = x[0], x[1], x[2], x[3]
+        img, attrs, objs, pairs = x[0], x[1], x[2], x[3]
 
-        # img_feats = self.image_embedder(img)
+        img = img.squeeze(0)
+
+        img_feats = self.image_embedder(img)
+
+        # dbe(img.shape, img_feats.shape)
 
         pair_embed = self.compose(self.train_attrs, self.train_objs).permute(1, 0)
         img_feats_normed = F.normalize(img_feats, dim=1)
 
-        img_feats_normed = img_feats_normed.squeeze(0)
+        # img_feats_normed = img_feats_normed.squeeze(0)
 
         pair_pred = torch.matmul(img_feats_normed, pair_embed)
 
@@ -306,6 +313,7 @@ class CompCos(nn.Module):
         else:
             with torch.no_grad():
                 loss, pred = self.val_forward(x)
+
         return loss, pred
 
 

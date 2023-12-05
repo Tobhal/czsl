@@ -123,6 +123,7 @@ class CompositionDataset(Dataset):
         update_features = False,
         return_images = False,
         train_only = False,
+        augmented = False,
         open_world = False,
         phosc_model = None,
         clip_model = None
@@ -136,9 +137,12 @@ class CompositionDataset(Dataset):
         self.return_images = return_images
         self.update_features = update_features
         self.feat_dim = 512 if 'resnet18' in model else 2048 # todo, unify this  with models
+        self.augmented = augmented
         self.open_world = open_world
         self.phosc_model = phosc_model
         self.clip_model = clip_model
+
+        print(f'Train with augmented dataset: {self.augmented}')
 
         self.attrs, self.objs, self.pairs, self.train_pairs, self.val_pairs, self.test_pairs, self.train_data, self.val_data, self.test_data = self.parse_split()
         
@@ -173,10 +177,14 @@ class CompositionDataset(Dataset):
         
         self.all_data = self.train_data + self.val_data + self.test_data
         print('Dataset loaded')
+
         print('Train pairs: {}, Validation pairs: {}, Test Pairs: {}'.format(
-            len(self.train_pairs), len(self.val_pairs), len(self.test_pairs)))
+            len(self.train_pairs), len(self.val_pairs), len(self.test_pairs))
+        )
+
         print('Train images: {}, Validation images: {}, Test images: {}'.format(
-            len(self.train_data), len(self.val_data), len(self.test_data)))
+            len(self.train_data), len(self.val_data), len(self.test_data))
+        )
 
         if subset:
             ind = np.arange(len(self.data))
@@ -221,7 +229,7 @@ class CompositionDataset(Dataset):
                 zip(activation_data['files'], activation_data['features'])
             )
 
-            self.feat_dim = activation_data['features'].size(1)
+            self.feat_dim = activation_data['features'].size(2)
             print('{} activations loaded'.format(len(self.activations)))
 
     def parse_split(self):
@@ -258,9 +266,11 @@ class CompositionDataset(Dataset):
             attrs, objs = zip(*pairs)
             return attrs, objs, pairs, data
 
+        train = 'train-aug' if self.augmented else 'train'
+
         tr_attrs, tr_objs, tr_pairs, tr_data = parse_pairs(
-            ospj(self.root, self.split, 'train_pairs.csv'),
-            'train'
+            ospj(self.root, self.split, f'{train}_pairs.csv'),
+            f'{train}'
         )
         vl_attrs, vl_objs, vl_pairs, vl_data = parse_pairs(
             ospj(self.root, self.split, 'val_pairs.csv'),
@@ -275,6 +285,7 @@ class CompositionDataset(Dataset):
         all_attrs, all_objs = sorted(
             list(set(tr_attrs + vl_attrs + ts_attrs))), sorted(
                 list(set(tr_objs + vl_objs + ts_objs)))
+        
         all_pairs = sorted(list(set(tr_pairs + vl_pairs + ts_pairs)))
 
         return all_attrs, all_objs, all_pairs, tr_pairs, vl_pairs, ts_pairs, tr_data, vl_data, ts_data

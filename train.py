@@ -39,10 +39,11 @@ def main():
     # Get arguments and start logging
     args = parser.parse_args()
     load_args(args.config, args)
-    logpath = os.path.join(args.cv_dir, args.name)
+    logpath = os.path.join(args.cv_dir, args.name, f'lr{args.lr:.1e}|lrg{args.lrg:.1e}|wd{args.wd:.1e}|cosine{args.cosine_scale}|aug{"t" if args.augmented else "f"}|nlayers{args.nlayers}')
+
     os.makedirs(logpath, exist_ok=True)
     save_args(args, logpath, args.config)
-    writer = SummaryWriter(log_dir = logpath, flush_secs = 30)
+    writer = SummaryWriter(log_dir=logpath, flush_secs = 30)
 
     # Define phosc model
     phosc_model = create_model(
@@ -77,6 +78,7 @@ def main():
         update_features = args.update_features,
         train_only=args.train_only,
         open_world=args.open_world,
+        augmented=args.augmented,
         phosc_model=phosc_model,
         clip_model=clip_model
     )
@@ -96,6 +98,7 @@ def main():
         subset=args.subset,
         update_features = args.update_features,
         open_world=args.open_world,
+        augmented=args.augmented,
         phosc_model=phosc_model,
         clip_model=clip_model
     )
@@ -107,10 +110,9 @@ def main():
         num_workers=args.workers
     )
 
-
     # Get model and optimizer
     image_extractor, model, optimizer = configure_model(args, trainset)
-    image_extractor = None
+
     args.extractor = image_extractor
 
     train = train_normal
@@ -127,6 +129,7 @@ def main():
         if image_extractor:
             try:
                 image_extractor.load_state_dict(checkpoint['image_extractor'])
+
                 if args.freeze_features:
                     print('Freezing image extractor')
                     image_extractor.eval()
@@ -263,13 +266,15 @@ def test(epoch, image_extractor, model, testloader, evaluator, writer, args, log
         save_checkpoint(epoch)
 
     if stats['AUC'] > best_auc:
-        best_auc = stats['AUC']
-        print('New best AUC ', best_auc)
+        improvement = stats['AUC'] - best_auc  # Calculate improvement
+        best_auc = stats['AUC']  # Update best_auc
+        print(f'New best AUC {best_auc}, improved by: {improvement:.4f}')  # Print improvement
         save_checkpoint('best_auc')
 
     if stats['best_hm'] > best_hm:
-        best_hm = stats['best_hm']
-        print('New best HM ', best_hm)
+        improvement = stats['best_hm'] - best_hm  # Calculate improvement
+        best_hm = stats['best_hm']  # Update best_hm
+        print(f'New best HM {best_hm}, improved by: {improvement:.4f}')  # Print improvement
         save_checkpoint('best_hm')
 
     # Logs
