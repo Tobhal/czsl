@@ -74,7 +74,7 @@ trainset = dset.CompositionDataset(
 
 train_loader = torch.utils.data.DataLoader(
     trainset,
-    batch_size=1,
+    batch_size=32,
     shuffle=True,
     num_workers=0
 )
@@ -87,7 +87,7 @@ validationset = dset.CompositionDataset(
     num_negs=1,
     pair_dropout=0.5,
     update_features = False,
-    train_only=True,
+    train_only=True,    # TODO: change to `False`
     open_world=True,
     augmented=False,
     phosc_model=phosc_model,
@@ -95,7 +95,7 @@ validationset = dset.CompositionDataset(
 
 val_loader = torch.utils.data.DataLoader(
     trainset,
-    batch_size=1,
+    batch_size=32,
     shuffle=True,
     num_workers=0
 )
@@ -141,10 +141,29 @@ def custom_loss(image_features, text_features):
     return loss
 
 
+def custom_triplet_loss(anchor_image_features, positive_text_features, negative_text_features):
+    # Use torch.nn.functional.triplet_margin_loss
+    loss = torch.nn.functional.triplet_margin_loss(anchor_image_features, positive_text_features, negative_text_features, margin=1.0)
+    return loss
+
+
 def has_nan(tensor):
     if torch.isnan(tensor).any():
         print("NaN value found in tensor. Exiting...")
         exit()
+
+
+def custom_loss_same_class(anchor_image_features, positive_text_features, negative_text_features):
+    # Return a minimal or zero loss for same-class pairs
+    return torch.tensor(0., device=device, requires_grad=True)
+
+
+def custom_loss_different_class(anchor_image_features, positive_text_features, negative_text_features):
+    # Assuming anchor_image_features and negative_text_features are normalized
+    similarity = torch.nn.functional.cosine_similarity(anchor_image_features, negative_text_features)
+    # Penalize high similarity for different classes
+    loss = torch.mean(similarity)
+    return loss
 
 
 def main(): 
@@ -171,29 +190,50 @@ def main():
         running_loss = 0.0
 
         train_bar = tqdm(train_loader, desc=f"Training Epoch {epoch + 1}")
-        for data in train_bar:
-            _, _, _, _, _, _, _, _, image, attr, obj = data
-            image = loader(image[0])
-            image = clip_preprocess(image).unsqueeze(0).to(device)
+        for batch in train_bar:
+            accumulated_loss = torch.zeros(1, device=device, requires_grad=True)
 
-            text_features = gen_word_objs_embeddings(obj[0])  # Get text features
+            # Unpacking the batch data
+            _, _, _, _, _, _, _, _, image_names, _, descriptions = batch
 
-            # Calculate loss
-            image_features = clip_model.encode_image(image)
+            for i in range(len(image_names)):
+                anchor_img_name = image_names[i]
+                anchor_desc = descriptions[i]
 
-            has_nan(image_features)
+                # Load and preprocess the anchor image
+                anchor_img = loader(anchor_img_name)
+                anchor_img = clip_preprocess(anchor_img).unsqueeze(0).to(device)
 
-            loss = custom_loss(image_features, text_features)
+                anchor_image_features = clip_model.encode_image(anchor_img)
+                anchor_text_features = gen_word_objs_embeddings(anchor_desc)
+
+                for j in range(len(image_names)):
+                    if i != j:
+                        negative_desc = descriptions[j]
+                        negative_text_features = gen_word_objs_embeddings(negative_desc)
+
+                        # Determine if descriptions are of the same class
+                        is_same_class = (anchor_desc == negative_desc)
+
+                        # Calculate custom loss based on class
+                        if is_same_class:
+                            # Minimize distance for same class
+                            loss = custom_loss_same_class(anchor_image_features, anchor_text_features, negative_text_features)
+                        else:
+                            # Maximize distance for different classes
+                            loss = custom_loss_different_class(anchor_image_features, anchor_text_features, negative_text_features)
+
+                        accumulated_loss = accumulated_loss + loss  # Out-of-place operation
+            
+            # Normalize loss by the number of comparisons
+            normalized_loss = accumulated_loss / (len(image_names) * (len(image_names) - 1))
 
             optimizer.zero_grad()
-            loss.backward()
+            normalized_loss.backward()  # Backpropagate the normalized loss
             optimizer.step()
-            running_loss += loss.item()
+            running_loss += normalized_loss.item()
 
-            # dbe(running_loss, loss, calls_before_exit=20, print_when_not_exit=True)
-
-            # Update progress bar description with the current loss
-            train_bar.set_description(f"Training Epoch {epoch + 1} Loss: {loss.item():.4f}")
+            train_bar.set_description(f"Training Epoch {epoch + 1} Loss: {normalized_loss.item():.4f}")
 
         # Logging training loss
         train_loss = running_loss / len(train_loader)
@@ -205,43 +245,66 @@ def main():
             val_loss = 0.0
 
             val_bar = tqdm(val_loader, desc=f"Validation Epoch {epoch + 1}")
-            for data in val_bar:
-                _, _, _, _, _, _, _, _, image, attr, obj = data
-                image = loader(image[0])
-                image = clip_preprocess(image).unsqueeze(0).to(device)
+            for batch in val_bar:
+                accumulated_loss = torch.zeros(1, device=device)
 
-                text_features = gen_word_objs_embeddings(obj[0])  # Get text features
+                # Unpacking the batch data
+                _, _, _, _, _, _, _, _, image_names, _, descriptions = batch
 
-                image_features = clip_model.encode_image(image)
+                for i in range(len(image_names)):
+                    anchor_img_name = image_names[i]
+                    anchor_desc = descriptions[i]
 
-                has_nan(image_features)
+                    # Load and preprocess the anchor image
+                    anchor_img = loader(anchor_img_name)
+                    anchor_img = clip_preprocess(anchor_img).unsqueeze(0).to(device)
 
-                val_loss += custom_loss(image_features, text_features)
+                    anchor_image_features = clip_model.encode_image(anchor_img)
+                    anchor_text_features = gen_word_objs_embeddings(anchor_desc)
 
-                # Update progress bar description with the current loss
-                val_bar.set_description(f"Validation Epoch {epoch + 1} Loss: {val_loss / len(val_loader):.4f}")
+                    for j in range(len(image_names)):
+                        if i != j:
+                            negative_desc = descriptions[j]
+                            negative_text_features = gen_word_objs_embeddings(negative_desc)
+
+                            # Determine if descriptions are of the same class
+                            is_same_class = (anchor_desc == negative_desc)
+
+                            # Calculate custom loss based on class
+                            if is_same_class:
+                                # Minimize distance for same class
+                                loss = custom_loss_same_class(anchor_image_features, anchor_text_features, negative_text_features)
+                            else:
+                                # Maximize distance for different classes
+                                loss = custom_loss_different_class(anchor_image_features, anchor_text_features, negative_text_features)
+
+                            accumulated_loss += loss
+
+                # Normalize loss by the number of comparisons
+                normalized_loss = accumulated_loss.mean()
+                val_loss += normalized_loss.item()
+                val_bar.set_description(f"Validation Epoch {epoch + 1} Loss: {normalized_loss.item():.4f}")
 
             val_loss /= len(val_loader)
             # Logging validation loss
-            val_loss /= len(val_loader)
-            scheduler.step(val_loss)
             logging.info(f"Epoch {epoch}, Validation Loss: {val_loss}")
 
+            scheduler.step(val_loss)
 
-        print(f"Epoch {epoch}, Training Loss: {running_loss / len(train_loader)}, Validation Loss: {val_loss}, Patience: {counter}")
-        logging.info(f"Epoch {epoch}, Best Loss: {best_loss}, Patience Counter: {counter}")
+            print(f"Epoch {epoch}, Training Loss: {running_loss / len(train_loader)}, Validation Loss: {val_loss}, Patience: {counter}")
+            logging.info(f"Epoch {epoch}, Best Loss: {best_loss}, Patience Counter: {counter}")
 
-        # Check for early stopping
-        if val_loss < best_loss:
-            best_loss = val_loss
-            counter = 0
-            # Save the model
-            torch.save(clip_model.state_dict(), model_save_path)
-        else:
-            counter += 1
-            if counter >= patience:
-                print("Early stopping triggered")
-                break
+            # Check for early stopping
+            if val_loss < best_loss:
+                best_loss = val_loss
+                counter = 0
+                # Save the model
+                torch.save(clip_model.state_dict(), model_save_path)
+            else:
+                counter += 1
+                if counter >= patience:
+                    print("Early stopping triggered")
+                    break
 
 if __name__ == '__main__':
     try:
