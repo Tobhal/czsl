@@ -60,9 +60,16 @@ def custom_loss(image_features, text_features):
     return loss
 
 
+def normalize_features(features):
+    return features / features.norm(dim=1, keepdim=True)
+
+
 def custom_loss_same_class(anchor_image_features, positive_text_features, negative_text_features):
     # Assuming anchor_image_features and positive_text_features are normalized
-    similarity = torch.nn.functional.cosine_similarity(anchor_image_features, positive_text_features)
+    similarity = torch.nn.functional.cosine_similarity(
+        normalize_features(anchor_image_features),
+        normalize_features(positive_text_features)
+    )
     # Maximize similarity (minimize distance) for same-class pairs: lower loss for higher similarity
     loss = -torch.mean(similarity)
     return loss
@@ -70,19 +77,24 @@ def custom_loss_same_class(anchor_image_features, positive_text_features, negati
 
 def custom_loss_different_class(anchor_image_features, positive_text_features, negative_text_features):
     # Assuming anchor_image_features and negative_text_features are normalized
-    similarity = torch.nn.functional.cosine_similarity(anchor_image_features, negative_text_features)
+    similarity = torch.nn.functional.cosine_similarity(
+        normalize_features(anchor_image_features),
+        normalize_features(positive_text_features)
+    )
     # Penalize high similarity for different classes
     loss = 1 - torch.mean(similarity)
     return loss
 
 
-def convert_models_to_fp32(model): 
-    """
-    https://github.com/openai/CLIP/issues/57
-    """
-    for p in model.parameters(): 
-        p.data = p.data.float() 
-        p.grad.data = p.grad.data.float()
+def custom_triplet_loss(anchor_image_features, positive_text_features, negative_text_features, margin=1.0):
+    # Calculate triplet loss
+    loss = torch.nn.functional.triplet_margin_loss(
+        anchor_image_features,
+        positive_text_features,
+        negative_text_features,
+        margin=margin
+    )
+    return loss
 
 
 def train_one_epoch(epoch, train_loader, clip_model, clip_preprocess, loader, optimizer):
@@ -93,14 +105,14 @@ def train_one_epoch(epoch, train_loader, clip_model, clip_preprocess, loader, op
 
     train_bar = tqdm(train_loader, desc=f"Training Epoch {epoch + 1}")
     for batch in train_bar:
-        accumulated_loss = 0
-
         optimizer.zero_grad()
 
         # Unpacking the batch data
-        _, _, _, _, _, _, _, _, image_names, _, descriptions = batch
+        *_, image_names, _, descriptions = batch
 
         cash_description = [gen_word_objs_embeddings(description, clip_model) for description in descriptions]
+
+        accumulated_loss = torch.zeros(1, device=device)
 
         for i in range(len(image_names)):
             anchor_img_name = image_names[i]
@@ -114,28 +126,17 @@ def train_one_epoch(epoch, train_loader, clip_model, clip_preprocess, loader, op
 
             for j in range(len(image_names)):
                 if i != j:
-                    negative_text_features = cash_description[j] 
+                    negative_text_features = cash_description[j]
 
-                    # Determine if descriptions are of the same class
-                    is_same_class = (descriptions[i] == descriptions[j])
+                    loss = custom_triplet_loss(anchor_image_features, anchor_text_features, negative_text_features)
+                    accumulated_loss += loss
 
-                    # Calculate custom loss based on class
-                    if is_same_class:
-                        # Minimize distance for same class
-                        loss = custom_loss_same_class(anchor_image_features, anchor_text_features, negative_text_features)
-                    else:
-                        # Maximize distance for different classes
-                        loss = custom_loss_different_class(anchor_image_features, anchor_text_features, negative_text_features)
-
-                    accumulated_loss += loss  # Accumulate loss
-            
         # Normalize loss by the number of comparisons
-        normalized_loss = accumulated_loss / (len(image_names) * (len(image_names) - 1))
-
-        normalized_loss.backward()  # Backpropagate the normalized loss
+        normalized_loss = accumulated_loss.mean()
+        normalized_loss.backward()
         optimizer.step()
-        running_loss += normalized_loss.item()
 
+        running_loss += normalized_loss.item()
         train_bar.set_description(f"Training Epoch {epoch + 1} Loss: {normalized_loss.item():.4f}")
 
     # Logging training loss
@@ -155,7 +156,7 @@ def validate_one_epoch(epoch, val_loader, clip_model, clip_preprocess, loader, s
             accumulated_loss = torch.zeros(1, device=device)
 
             # Unpacking the batch data
-            _, _, _, _, _, _, _, _, image_names, _, descriptions = batch
+            *_, image_names, _, descriptions = batch
 
             for i in range(len(image_names)):
                 anchor_img_name = image_names[i]
@@ -173,16 +174,7 @@ def validate_one_epoch(epoch, val_loader, clip_model, clip_preprocess, loader, s
                         negative_desc = descriptions[j]
                         negative_text_features = gen_word_objs_embeddings(negative_desc, clip_model)
 
-                        # Determine if descriptions are of the same class
-                        is_same_class = (anchor_desc == negative_desc)
-
-                        # Calculate custom loss based on class
-                        if is_same_class:
-                            # Minimize distance for same class
-                            loss = custom_loss_same_class(anchor_image_features, anchor_text_features, negative_text_features)
-                        else:
-                            # Maximize distance for different classes
-                            loss = custom_loss_different_class(anchor_image_features, anchor_text_features, negative_text_features)
+                        loss = custom_triplet_loss(anchor_image_features, anchor_text_features, negative_text_features)
 
                         accumulated_loss += loss
 
@@ -211,10 +203,12 @@ def main():
     batch_size = 64
 
     # Define patchs
-    log_file_path = ospj('models', 'fine-tuned_clip', split, 'training_log.log')
     root_dir = ospj(DATA_FOLDER, "BengaliWords", "BengaliWords_CroppedVersion_Folds")
-    model_save_path = ospj('models', 'fine-tuned_clip', split, 'model.pth')
     image_loader_path = ospj(root_dir, split)
+
+    root_model_path = ospj('models', 'fine-tined_clip', split)
+    log_file_path = ospj(root_model_path, 'training_log.log')
+    model_save_path = ospj(root_model_path, 'model.pth')
 
     verify_model_save_path(model_save_path)
 
@@ -284,14 +278,14 @@ def main():
     # Define image loader
     loader = ImageLoader(image_loader_path)
 
-    # Validation related variables
-    patience = 5
+    # Define early stopping parameters
     best_loss = float('inf')
     patience_counter = 0
+    patience_threshold = 20  # Number of epochs to wait before stopping
 
     # Fine-tuning
     optimizer = torch.optim.Adam(clip_model.parameters(), lr=5e-5, betas=(0.9,0.98), eps=1e-6, weight_decay=0.2)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=2, factor=0.5, verbose=True)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=3, factor=0.5, verbose=True)
 
     for epoch in range(100):  # Set a maximum number of epochs
         train_loss = train_one_epoch(
@@ -314,17 +308,18 @@ def main():
 
         l = val_loss
 
+        # Inside your training loop
         if l < best_loss:
-            print(f'{epoch}: New best loss: {l}')
-            torch.save(clip_model.state_dict(), model_save_path)
-
             best_loss = l
             patience_counter = 0
+            print(f'{epoch}: New best loss: {best_loss}')
+
+            # Save the model
+            torch.save(clip_model.state_dict(), model_save_path)
         else:
             patience_counter += 1
-
-            if patience_counter >= patience:
-                print(f'Early exit, patience reached')
+            if patience_counter >= patience_threshold:
+                print("Early stopping triggered")
                 break
 
 
