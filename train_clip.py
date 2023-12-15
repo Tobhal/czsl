@@ -61,20 +61,20 @@ set_phoc_version('ben')
 trainset = dset.CompositionDataset(
     root=ospj(DATA_FOLDER, "BengaliWords", "BengaliWords_CroppedVersion_Folds"),
     phase='train',
-    split='fold_0_new',
+    split='Fold0_use',
     model='resnet18',
     num_negs=1,
     pair_dropout=0.5,
     update_features = False,
     train_only=True,
     open_world=True,
-    augmented=False,
+    augmented=True,
     phosc_model=phosc_model,
 )
 
 train_loader = torch.utils.data.DataLoader(
     trainset,
-    batch_size=32,
+    batch_size=64,
     shuffle=True,
     num_workers=0
 )
@@ -82,20 +82,20 @@ train_loader = torch.utils.data.DataLoader(
 validationset = dset.CompositionDataset(
     root=ospj(DATA_FOLDER, "BengaliWords", "BengaliWords_CroppedVersion_Folds"),
     phase='val',
-    split='fold_0_new',
+    split='Fold0_use',
     model='resnet18',
     num_negs=1,
     pair_dropout=0.5,
     update_features = False,
     train_only=True,    # TODO: change to `False`
     open_world=True,
-    augmented=False,
+    augmented=True,
     phosc_model=phosc_model,
 )
 
 val_loader = torch.utils.data.DataLoader(
     trainset,
-    batch_size=32,
+    batch_size=64,
     shuffle=True,
     num_workers=0
 )
@@ -114,8 +114,6 @@ def custom_loss(image_features, text_features):
 
 
 def gen_word_objs_embeddings(obj):
-    global clip_model
-
     shape_description = gen_shape_description(obj)
     text = clip.tokenize(shape_description).to(device)
 
@@ -154,15 +152,18 @@ def has_nan(tensor):
 
 
 def custom_loss_same_class(anchor_image_features, positive_text_features, negative_text_features):
-    # Return a minimal or zero loss for same-class pairs
-    return torch.tensor(0., device=device, requires_grad=True)
+    # Assuming anchor_image_features and positive_text_features are normalized
+    similarity = torch.nn.functional.cosine_similarity(anchor_image_features, positive_text_features)
+    # Maximize similarity (minimize distance) for same-class pairs: lower loss for higher similarity
+    loss = -torch.mean(similarity)
+    return loss
 
 
 def custom_loss_different_class(anchor_image_features, positive_text_features, negative_text_features):
     # Assuming anchor_image_features and negative_text_features are normalized
     similarity = torch.nn.functional.cosine_similarity(anchor_image_features, negative_text_features)
     # Penalize high similarity for different classes
-    loss = torch.mean(similarity)
+    loss = 1 - torch.mean(similarity)
     return loss
 
 
@@ -173,7 +174,7 @@ def main():
     optimizer = torch.optim.Adam(clip_model.parameters(), lr=1e-5)
     clip_model.train()
 
-    loader = ImageLoader(ospj(DATA_FOLDER, "BengaliWords", "BengaliWords_CroppedVersion_Folds", 'fold_0_new'))
+    loader = ImageLoader(ospj(DATA_FOLDER, "BengaliWords", "BengaliWords_CroppedVersion_Folds", 'Fold0_use'))
 
     # Fine-tuning (with early stopping)
     optimizer = torch.optim.Adam(clip_model.parameters(), lr=1e-5)
@@ -196,24 +197,24 @@ def main():
             # Unpacking the batch data
             _, _, _, _, _, _, _, _, image_names, _, descriptions = batch
 
+            cash_description = [gen_word_objs_embeddings(description) for description in descriptions]
+
             for i in range(len(image_names)):
                 anchor_img_name = image_names[i]
-                anchor_desc = descriptions[i]
 
                 # Load and preprocess the anchor image
                 anchor_img = loader(anchor_img_name)
                 anchor_img = clip_preprocess(anchor_img).unsqueeze(0).to(device)
 
                 anchor_image_features = clip_model.encode_image(anchor_img)
-                anchor_text_features = gen_word_objs_embeddings(anchor_desc)
+                anchor_text_features = cash_description[i]
 
                 for j in range(len(image_names)):
                     if i != j:
-                        negative_desc = descriptions[j]
-                        negative_text_features = gen_word_objs_embeddings(negative_desc)
+                        negative_text_features = cash_description[j] 
 
                         # Determine if descriptions are of the same class
-                        is_same_class = (anchor_desc == negative_desc)
+                        is_same_class = (descriptions[i] == descriptions[j])
 
                         # Calculate custom loss based on class
                         if is_same_class:
@@ -250,6 +251,8 @@ def main():
 
                 # Unpacking the batch data
                 _, _, _, _, _, _, _, _, image_names, _, descriptions = batch
+                
+                cash_description = [gen_word_objs_embeddings(description) for description in descriptions]
 
                 for i in range(len(image_names)):
                     anchor_img_name = image_names[i]
@@ -260,15 +263,14 @@ def main():
                     anchor_img = clip_preprocess(anchor_img).unsqueeze(0).to(device)
 
                     anchor_image_features = clip_model.encode_image(anchor_img)
-                    anchor_text_features = gen_word_objs_embeddings(anchor_desc)
+                    anchor_text_features = cash_description[i]
 
                     for j in range(len(image_names)):
                         if i != j:
-                            negative_desc = descriptions[j]
-                            negative_text_features = gen_word_objs_embeddings(negative_desc)
+                            negative_text_features = cash_description[j] 
 
                             # Determine if descriptions are of the same class
-                            is_same_class = (anchor_desc == negative_desc)
+                            is_same_class = (descriptions[i] == descriptions[j])
 
                             # Calculate custom loss based on class
                             if is_same_class:
