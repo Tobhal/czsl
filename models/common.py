@@ -362,7 +362,6 @@ class Evaluator:
         '''
         Wrapper function to call generate_predictions for manifold models
         '''
-        
         results = {}
         mask = self.seen_mask.repeat(scores.shape[0],1) # Repeat mask along pairs dimension
         scores[~mask] += bias # Add bias to test pairs
@@ -403,7 +402,7 @@ class Evaluator:
             obj_match = (obj_truth.unsqueeze(1).repeat(1, topk) == _scores[1][:, :topk])
             
             if p:
-                dbe(obj_truth, _scores[1].squeeze(), obj_match.squeeze(), calls_before_exit=30)
+                dbe(obj_truth, _scores[1].squeeze(), obj_match.squeeze())
             # dbe(obj_match)
 
             # Match of object pair
@@ -495,7 +494,7 @@ class Evaluator:
 
             results = self.score_fast_model(scores, obj_truth, bias = bias, topk = topk)
             results = results['closed'] # we only need biased
-            results = _process(results, p=False)
+            results = _process(results, p=True)
 
             seen_match = float(results[3].mean())
             unseen_match = float(results[4].mean())

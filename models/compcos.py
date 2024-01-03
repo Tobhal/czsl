@@ -7,6 +7,10 @@ from .common import MLP
 from utils.dbe import dbe
 from modules.utils import gen_shape_description
 
+from flags import DATA_FOLDER
+
+from os.path import join as ospj
+
 import clip
 
 from itertools import product
@@ -114,13 +118,17 @@ class CompCos(nn.Module):
         self.attr_embedder = nn.Embedding(len(dset.attrs), input_dim)
         self.obj_embedder = nn.Embedding(len(dset.objs) * 13, input_dim)    # FIX is this correct?
 
+        self.idx2attr_emb = self.gen_word_attrs_embeddings(dset.attrs)
+        self.emb_attrs = [self.idx2attr_emb[val.item()] for val in self.train_attrs]
+        self.emb_attrs = torch.stack(self.emb_attrs)
+
         # init with word embeddings
         if args.emb_init:
             # pretrained_weight = load_word_embeddings(args.emb_init, dset.attrs, 'attrs')
             pretrained_weight = self.gen_word_attrs_embeddings(dset.attrs)
             self.attr_embedder.weight.data.copy_(pretrained_weight)
 
-            pretrained_weight = self.get_word_objs_embeddings(dset.objs)
+            pretrained_weight = self.gen_word_objs_embeddings(dset.objs)
             self.obj_embedder.weight.data.copy_(pretrained_weight)
 
         # static inputs
@@ -148,7 +156,7 @@ class CompCos(nn.Module):
 
         return embeds
 
-    def get_word_objs_embeddings(self, objs):
+    def gen_word_objs_embeddings(self, objs):
         embeds = []
 
         for obj in objs:
@@ -177,8 +185,43 @@ class CompCos(nn.Module):
             param.requires_grad = False
 
 
+    def dot_product_matrix(self, attrs, objs):
+        # Normalize the vectors to unit vectors
+        attrs_norm = F.normalize(attrs, p=2, dim=1)
+        objs_norm = F.normalize(objs, p=2, dim=1)
+            
+        # Calculate the dot product matrix
+        dot_matrix = torch.mm(attrs_norm, objs_norm.t())
+
+        # Replace diagonal elements with 1
+        # indices = torch.arange(dot_matrix.size(0))
+        # dot_matrix[indices, indices] = 1
+
+        # Count the number of classes in attrs and objs
+        num_classes_attrs = attrs.shape[0]
+        num_classes_objs = objs.shape[0]
+
+        filename = f"dot_product_matrix.txt"
+        file_path = ospj(DATA_FOLDER, self.args.data_dir, self.args.splitname, filename)
+        print(file_path)
+
+        with open(file_path, 'w') as f:
+            # Write the number of classes
+            f.write(f'Number of classes in attrs: {num_classes_attrs}\n')
+            f.write(f'Number of classes in objs: {num_classes_objs}\n\n')
+
+            # Write the dot product matrix
+            for row in dot_matrix:
+                f.write(' '.join([f'{val:.4f}' for val in row]) + '\n')
+
+        return dot_matrix
+
+
     def compose(self, attrs, objs):
+        dbe(attrs, objs)
+
         attrs, objs = self.attr_embedder(attrs), self.obj_embedder(objs)
+        # attrs, objs = self.emb_attrs, self.obj_embedder(objs)
 
         inputs = torch.cat([attrs, objs], 1)
 
@@ -192,9 +235,11 @@ class CompCos(nn.Module):
         obj_embeddings = self.obj_embedder(torch.arange(len(self.objs)).long().to('cuda'))
         obj_embedding_sim = compute_cosine_similarity(self.objs, obj_embeddings,
                                                            return_dict=True)
-        attr_embeddings = self.attr_embedder(torch.arange(len(self.attrs)).long().to('cuda'))
-        attr_embedding_sim = compute_cosine_similarity(self.attrs, attr_embeddings,
-                                                            return_dict=True)
+
+        # attr_embeddings = self.attr_embedder(torch.arange(len(self.attrs)).long().to('cuda'))
+        attr_embeddings = self.emb_attrs
+
+        attr_embedding_sim = compute_cosine_similarity(self.attrs, attr_embeddings, return_dict=True)
 
         feasibility_scores = self.seen_mask.clone().float()
         for a in self.attrs:
@@ -272,14 +317,13 @@ class CompCos(nn.Module):
 
         img = img.squeeze(0)
 
-        img_feats = self.image_embedder(img)
-
-        # dbe(img.shape, img_feats.shape)
+        if self.args.use_image_embedder:
+            img_feats = self.image_embedder(img)
+        else:
+            img_feats = img
 
         pair_embed = self.compose(self.train_attrs, self.train_objs).permute(1, 0)
         img_feats_normed = F.normalize(img_feats, dim=1)
-
-        # img_feats_normed = img_feats_normed.squeeze(0)
 
         pair_pred = torch.matmul(img_feats_normed, pair_embed)
 
@@ -299,6 +343,7 @@ class CompCos(nn.Module):
 
         pair_embed = self.compose(self.train_attrs, self.train_objs).permute(1, 0)
         img_feats_normed = F.normalize(img_feats, dim=1)
+
 
         pair_pred = torch.matmul(img_feats_normed, pair_embed)
 

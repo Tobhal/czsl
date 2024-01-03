@@ -10,8 +10,6 @@ import os
 from utils.dbe import dbe
 
 
-
-
 # Input: CSV file name that has shape counts for each alphabet
 # Output: Number of shapes/columns
 
@@ -113,11 +111,28 @@ def label_maker(word_txt: TextIO) -> dict:
 
 def gen_shape_description(word: str) -> list:
     single_phos = word_vector(word)
+
+    shapes = [
+        'left semi circle',
+        'verticle line',
+        'bottom semi-circle',
+        'right semi-circle',
+        'left top hood',
+        'diagonal line (135◦), going from right to left',
+        'diagonal line (45◦), going from left to right',
+        'loop within a character',
+        'dot below a character',
+        'loop below the character',
+        'horizontal line',
+        'left small semi-circle',
+        'right top hood'
+    ]
+
     shape_description = []
 
     for idx, shape in enumerate(single_phos[0]):
-        ordinal_idx = num2words(idx + 1, to='ordinal')
-        shape_description.append(f'the {ordinal_idx} shape is {shape}.\n')
+        amout_of_shapes = num2words(idx, to='cardinal')
+        shape_description.append(f'There are {amout_of_shapes} {shapes[idx]} present in the word.\n')
 
     return shape_description
 

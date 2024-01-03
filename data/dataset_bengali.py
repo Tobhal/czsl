@@ -145,7 +145,7 @@ class CompositionDataset(Dataset):
         print(f'Train with augmented dataset: {self.augmented}')
 
         self.attrs, self.objs, self.pairs, self.train_pairs, self.val_pairs, self.test_pairs, self.train_data, self.val_data, self.test_data = self.parse_split()
-        
+
         self.full_pairs = list(product(self.attrs, self.objs))
 
         # Clean only was here
@@ -159,6 +159,9 @@ class CompositionDataset(Dataset):
         if train_only and self.phase == 'train':
             print('Using only train pairs')
             self.pair2idx = {pair : idx for idx, pair in enumerate(self.train_pairs)}
+        elif self.phase == 'val':
+            print('Using only validation pairs')
+            self.pair2idx = {pair : idx for idx, pair in enumerate(self.val_pairs)}
         else:
             print('Using all pairs')
             self.pair2idx = {pair : idx for idx, pair in enumerate(self.pairs)}
@@ -166,6 +169,7 @@ class CompositionDataset(Dataset):
         if self.phase == 'train':
             self.data = self.train_data
         elif self.phase == 'val':
+            print('Using validation data')
             self.data = self.val_data
         elif self.phase == 'test':
             self.data = self.test_data
@@ -214,7 +218,7 @@ class CompositionDataset(Dataset):
         # NOTE: Commented out because image features are generated at a diffrent stage
         # FIX: rewrite this to preencode the images using phosc net. where the key is the image and the value is the phosc encoding
         if not self.update_features:
-            feat_file = ospj(root, self.split, model+'_featurers.t7')
+            feat_file = ospj(root, self.split, f'{model}_{self.phase}_featurers.t7')
 
             print(f'Using {model} and feature file {feat_file}')
 
@@ -282,10 +286,8 @@ class CompositionDataset(Dataset):
         )
         
         #now we compose all objs, attrs and pairs
-        all_attrs, all_objs = sorted(
-            list(set(tr_attrs + vl_attrs + ts_attrs))), sorted(
-                list(set(tr_objs + vl_objs + ts_objs)))
-        
+        all_attrs = sorted(list(set(tr_attrs + vl_attrs + ts_attrs)))
+        all_objs = sorted(list(set(tr_objs + vl_objs + ts_objs)))
         all_pairs = sorted(list(set(tr_pairs + vl_pairs + ts_pairs)))
 
         return all_attrs, all_objs, all_pairs, tr_pairs, vl_pairs, ts_pairs, tr_data, vl_data, ts_data
@@ -332,11 +334,13 @@ class CompositionDataset(Dataset):
             Tuple of a different attribute, object indexes
         '''
         new_attr, new_obj = self.sample_pairs[np.random.choice(
-            len(self.sample_pairs))]
+            len(self.sample_pairs))
+        ]
 
         while new_attr == attr and new_obj == obj:
-            new_attr, new_obj = self.sample_pairs[np.random.choice(
-            len(self.sample_pairs))]
+            new_attr, new_obj = self.sample_pairs[
+                np.random.choice(len(self.sample_pairs))
+            ]
         
         return (self.attr2idx[new_attr], self.obj2idx[new_obj])
 
@@ -425,6 +429,7 @@ class CompositionDataset(Dataset):
 
         image, attr, obj = self.data[index]
 
+
         # Decide what to output
         if not self.update_features:
             img = self.activations[image]
@@ -453,12 +458,17 @@ class CompositionDataset(Dataset):
 
             comm_attr = self.sample_affordance(inv_attr, obj) # attribute for commutative regularizer
             
-
-            data += [neg_attr, neg_obj, inv_attr, comm_attr]
+            data += [neg_attr, neg_obj, inv_attr, comm_attr, image, attr, obj]
+            # data += [neg_attr, neg_obj, inv_attr, comm_attr]
 
         # Return image paths if requested as the last element of the list
         if self.return_images and self.phase != 'train':
             data.append(image)
+
+        if self.phase == 'test' or self.phase == 'val':
+            data.append(image)
+            data.append(attr)
+            data.append(obj)
 
         return data
     

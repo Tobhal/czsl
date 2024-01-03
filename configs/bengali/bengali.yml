@@ -4,10 +4,11 @@ experiment:
 dataset:
   data_dir: BengaliWords/BengaliWords_CroppedVersion_Folds
   dataset: BengaliWords
-  splitname: Fold0_use
+  splitname: Fold0_use_50
   open_world: true
   pretrained_weights: pretrained_model/phosc/epochs.pt
   augmented: false
+  use_image_embedder: true
 model_params:
   model: compcos
   dropout: true
@@ -29,7 +30,7 @@ training:
   load:
   lr: 5.0e-05       # Default: 5.0e-05
   lrg: 1.0e-03      # Default: 1.0e-03
-  wd: 5.0e-05       # Default 5.0e-05
+  wd: 5.0e-03       # Default 5.0e-05
   margin: 0.4
   cosine_scale: 20  # Default 20
   max_epochs: 300

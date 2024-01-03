@@ -30,7 +30,12 @@ from utils.dbe import dbe
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-model_save_path = "models/fine-tuned_clip/model.pth"
+split = 'Fold0_use_50'
+use_augmented = False
+
+model_save_path = ospj('models', 'fine-tuned_clip', split, 'model.pth')
+root_dir = ospj(DATA_FOLDER, "BengaliWords", "BengaliWords_CroppedVersion_Folds")
+image_loader_path = ospj(root_dir, split)
 
 # Define phosc model
 phosc_model = create_model(
@@ -48,16 +53,18 @@ set_phoc_version('ben')
 
 # Assuming you have the necessary imports and initializations done (like dset, phosc_model, etc.)
 testset = dset.CompositionDataset(
-    root=ospj(DATA_FOLDER, "BengaliWords", "BengaliWords_CroppedVersion_Folds"),
-    phase='test',
-    split='fold_0_new',
+    root=root_dir,
+    phase='train',
+    split=split,
+    # phase='test'
+    # split='fold_0_new',
     model='resnet18',
     num_negs=1,
     pair_dropout=0.5,
-    update_features = False,
+    update_features=False,
     train_only=True,
     open_world=True,
-    augmented=False,
+    augmented=use_augmented,
     # phosc_model=phosc_model,
     # clip_model=clip_model
 )
@@ -86,7 +93,7 @@ clip_preprocess = Compose([
     Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711)),
 ])
 
-loader = ImageLoader(ospj(DATA_FOLDER, "BengaliWords", "BengaliWords_CroppedVersion_Folds", 'fold_0_new'))
+loader = ImageLoader(image_loader_path)
 
 def gen_word_objs_embeddings(obj, clip_model):
         shape_description = gen_shape_description(obj)
@@ -105,7 +112,8 @@ def evaluate_model(model, dataloader, device):
     with torch.no_grad():
         for batch in tqdm(dataloader):
             # Unpacking the batch data
-            _, _, _, _, image_names, _, descriptions = batch
+            # _, _, _, _, image_names, _, descriptions = batch
+            _, _, _, _, _, _, _, _, image_names, _, descriptions = batch
 
             same_class_similarity = []
             different_class_similarity = []

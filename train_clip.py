@@ -79,7 +79,7 @@ def custom_loss_different_class(anchor_image_features, positive_text_features, n
     # Assuming anchor_image_features and negative_text_features are normalized
     similarity = torch.nn.functional.cosine_similarity(
         normalize_features(anchor_image_features),
-        normalize_features(positive_text_features)
+        normalize_features(negative_text_features)
     )
     # Penalize high similarity for different classes
     loss = 1 - torch.mean(similarity)
