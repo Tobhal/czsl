@@ -1,6 +1,11 @@
 import torch
 from torch.utils.data import DataLoader
 from torchvision import transforms
+import torch.nn.functional as F
+
+import numpy as np
+
+from transformers import CLIPTextConfig, CLIPVisionConfig, CLIPTextModelWithProjection, CLIPVisionModelWithProjection
 
 import logging
 
@@ -21,6 +26,11 @@ from data.dataset_bengali import ImageLoader
 from modules.utils import set_phos_version, set_phoc_version, gen_shape_description
 
 from modules import models, residualmodels
+
+from typing import Callable
+
+from enum import Enum
+
 
 # Load the CLIP model
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -64,25 +74,37 @@ def normalize_features(features):
     return features / features.norm(dim=1, keepdim=True)
 
 
-def custom_loss_same_class(anchor_image_features, positive_text_features, negative_text_features):
-    # Assuming anchor_image_features and positive_text_features are normalized
-    similarity = torch.nn.functional.cosine_similarity(
-        normalize_features(anchor_image_features),
-        normalize_features(positive_text_features)
-    )
-    # Maximize similarity (minimize distance) for same-class pairs: lower loss for higher similarity
-    loss = -torch.mean(similarity)
+# Cross entropy helper function
+def cross_entropy(logits, axis):
+    logprobs = torch.log_softmax(logits, axis=axis)
+    nll = torch.diag(logprobs)
+    ce = -torch.mean(nll)
+    return ce
+
+
+def custom_loss_same_class(anchor_image_features, positive_text_features):
+    # Ensure features are normalized
+    image_features = F.normalize(anchor_image_features, dim=1)
+    text_features = F.normalize(positive_text_features, dim=1)
+
+    # Calculate similarity
+    similarity = torch.matmul(image_features, text_features.T)
+
+    # Compute CLIP loss
+    loss = -((cross_entropy(similarity, axis=0) + cross_entropy(similarity, axis=1)) / 2)
     return loss
 
 
-def custom_loss_different_class(anchor_image_features, positive_text_features, negative_text_features):
-    # Assuming anchor_image_features and negative_text_features are normalized
-    similarity = torch.nn.functional.cosine_similarity(
-        normalize_features(anchor_image_features),
-        normalize_features(negative_text_features)
-    )
-    # Penalize high similarity for different classes
-    loss = 1 - torch.mean(similarity)
+def custom_loss_different_class(anchor_image_features, negative_text_features):
+    # Ensure features are normalized
+    image_features = F.normalize(anchor_image_features, dim=1)
+    text_features = F.normalize(negative_text_features, dim=1)
+
+    # Calculate similarity
+    similarity = torch.matmul(image_features, text_features.T)
+
+    # Compute CLIP loss
+    loss = 1 - ((cross_entropy(similarity, axis=0) + cross_entropy(similarity, axis=1)) / 2)
     return loss
 
 
@@ -97,7 +119,56 @@ def custom_triplet_loss(anchor_image_features, positive_text_features, negative_
     return loss
 
 
-def train_one_epoch(epoch, train_loader, clip_model, clip_preprocess, loader, optimizer):
+class Loss_method(Enum):
+    DIFFRENT_SAME = 1
+    CUSTOM_TRIPLET_LOSS = 2
+
+
+def calc_loss(anchor_image_features, positive_text_features, negative_text_features, is_same_class: bool, loss_method: Loss_method):
+    if loss_method == Loss_method.DIFFRENT_SAME:
+        if is_same_class:
+            return custom_loss_same_class(anchor_image_features, positive_text_features)
+        else:
+            return custom_loss_different_class(anchor_image_features, negative_text_features)
+
+    elif loss_method == Loss_method.CUSTOM_TRIPLET_LOSS:
+        return custom_triplet_loss(anchor_image_features, positive_text_features, negative_text_features)
+
+def create_learning_rate_fn(
+    optimizer,
+    train_ds_size: int,
+    train_batch_size: int,
+    num_train_epochs: int,
+    num_warmup_steps: int,
+    learning_rate: float,
+    linear=False
+):
+    """Returns a PyTorch learning rate scheduler."""
+    steps_per_epoch = train_ds_size // train_batch_size
+    num_train_steps = steps_per_epoch * num_train_epochs
+
+    def lr_lambda(current_step: int):
+        if current_step < num_warmup_steps:
+            return float(current_step) / float(max(1, num_warmup_steps))
+        if linear:
+            return max(
+                0.0, float(num_train_steps - current_step) / float(max(1, num_train_steps - num_warmup_steps))
+            )
+        else:  # Cosine decay
+            return 0.5 * (1 + np.cos(np.pi * (current_step - num_warmup_steps) / (num_train_steps - num_warmup_steps)))
+
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
+
+def adaptive_grad_clip(parameters, clip_factor, eps):
+    for p in parameters:
+        if p.grad is not None:
+            grad_norm = p.grad.norm()
+            max_norm = clip_factor / (eps + grad_norm)
+            p.grad.data.clamp_(-max_norm, max_norm)
+
+
+def train_one_epoch(epoch, train_loader, clip_model, clip_preprocess, loader, optimizer, scheduler=None):
     global device
 
     clip_model.train()
@@ -110,12 +181,13 @@ def train_one_epoch(epoch, train_loader, clip_model, clip_preprocess, loader, op
         # Unpacking the batch data
         *_, image_names, _, descriptions = batch
 
-        cash_description = [gen_word_objs_embeddings(description, clip_model) for description in descriptions]
+        cash_description = [gen_word_objs_embeddings(description, clip_model) for description in tqdm(descriptions, position=1, desc="Processing Descriptions", leave=False)]
 
         accumulated_loss = torch.zeros(1, device=device)
 
-        for i in range(len(image_names)):
+        for i in tqdm(range(len(image_names)), position=1, desc="Processing Images", leave=False):
             anchor_img_name = image_names[i]
+            anchor_word = descriptions[i]
 
             # Load and preprocess the anchor image
             anchor_img = loader(anchor_img_name)
@@ -124,57 +196,85 @@ def train_one_epoch(epoch, train_loader, clip_model, clip_preprocess, loader, op
             anchor_image_features = clip_model.encode_image(anchor_img)
             anchor_text_features = cash_description[i]
 
-            for j in range(len(image_names)):
+            for j in tqdm(range(len(image_names)), position=2, desc="Comparing", leave=False):
                 if i != j:
                     negative_text_features = cash_description[j]
+                    negative_word = descriptions[j]
 
-                    loss = custom_triplet_loss(anchor_image_features, anchor_text_features, negative_text_features)
+                    is_same_class = anchor_word == negative_text_features
+
+                    loss = calc_loss(
+                        anchor_image_features, 
+                        anchor_text_features, 
+                        negative_text_features, 
+                        is_same_class,
+                        Loss_method.CUSTOM_TRIPLET_LOSS
+                    )
+
                     accumulated_loss += loss
 
         # Normalize loss by the number of comparisons
         normalized_loss = accumulated_loss.mean()
         normalized_loss.backward()
+
+        # Adaptive gradient clipping (manual implementation)
+        adaptive_grad_clip(clip_model.parameters(), clip_factor=0.01, eps=0.001)
+
         optimizer.step()
+
+        if scheduler:
+            scheduler.step()
 
         running_loss += normalized_loss.item()
         train_bar.set_description(f"Training Epoch {epoch + 1} Loss: {normalized_loss.item():.4f}")
 
     # Logging training loss
     train_loss = running_loss / len(train_loader)
-    logging.info(f"Epoch {epoch}, Training Loss: {train_loss}")
+    logging.info(f"Epoch {epoch + 1}, Training Loss: {train_loss}")
 
     return train_loss
 
 
 def validate_one_epoch(epoch, val_loader, clip_model, clip_preprocess, loader, scheduler):
+    global device
+
     clip_model.eval()
     val_loss = 0.0
 
     with torch.no_grad():
         val_bar = tqdm(val_loader, desc=f"Validation Epoch {epoch + 1}")
         for batch in val_bar:
-            accumulated_loss = torch.zeros(1, device=device)
-
-            # Unpacking the batch data
             *_, image_names, _, descriptions = batch
 
-            for i in range(len(image_names)):
+            cash_description = [gen_word_objs_embeddings(description, clip_model) for description in tqdm(descriptions, position=1, desc="Processing Descriptions", leave=False)]
+
+            accumulated_loss = torch.zeros(1, device=device)
+
+            for i in tqdm(range(len(image_names)), position=1, desc="Processing Images", leave=False):
                 anchor_img_name = image_names[i]
-                anchor_desc = descriptions[i]
+                anchor_word = descriptions[i]
 
                 # Load and preprocess the anchor image
                 anchor_img = loader(anchor_img_name)
                 anchor_img = clip_preprocess(anchor_img).unsqueeze(0).to(device)
 
                 anchor_image_features = clip_model.encode_image(anchor_img)
-                anchor_text_features = gen_word_objs_embeddings(anchor_desc, clip_model)
+                anchor_text_features = cash_description[i]
 
-                for j in range(len(image_names)):
+                for j in tqdm(range(len(image_names)), position=2, desc="Comparing", leave=False):
                     if i != j:
-                        negative_desc = descriptions[j]
-                        negative_text_features = gen_word_objs_embeddings(negative_desc, clip_model)
+                        negative_text_features = cash_description[j]
+                        negative_word = descriptions[j]
 
-                        loss = custom_triplet_loss(anchor_image_features, anchor_text_features, negative_text_features)
+                        is_same_class = anchor_word == negative_text_features
+
+                        loss = calc_loss(
+                            anchor_image_features, 
+                            anchor_text_features, 
+                            negative_text_features, 
+                            is_same_class,
+                            Loss_method.CUSTOM_TRIPLET_LOSS
+                        )
 
                         accumulated_loss += loss
 
@@ -186,9 +286,9 @@ def validate_one_epoch(epoch, val_loader, clip_model, clip_preprocess, loader, s
         val_loss /= len(val_loader)
 
     # Logging validation loss
-    logging.info(f"Epoch {epoch}, Validation Loss: {val_loss}")
+    logging.info(f"Epoch {epoch + 1}, Validation Loss: {val_loss}")
 
-    scheduler.step(val_loss)
+    scheduler.step()
 
     return val_loss
 
@@ -206,7 +306,7 @@ def main():
     root_dir = ospj(DATA_FOLDER, "BengaliWords", "BengaliWords_CroppedVersion_Folds")
     image_loader_path = ospj(root_dir, split)
 
-    root_model_path = ospj('models', 'fine-tined_clip', split)
+    root_model_path = ospj('models', 'fine-tuned_clip', split)
     log_file_path = ospj(root_model_path, 'training_log.log')
     model_save_path = ospj(root_model_path, 'model.pth')
 
@@ -260,7 +360,6 @@ def main():
         phosc_model=phosc_model,
     )
 
-
     train_loader = torch.utils.data.DataLoader(
         trainset,
         batch_size=batch_size,
@@ -281,11 +380,24 @@ def main():
     # Define early stopping parameters
     best_loss = float('inf')
     patience_counter = 0
-    patience_threshold = 20  # Number of epochs to wait before stopping
+    patience_threshold = 6  # Number of epochs to wait before stopping
+
+    epochs = 100
+    warmup_steps = 5
+
+    lr = 5e-2
 
     # Fine-tuning
-    optimizer = torch.optim.Adam(clip_model.parameters(), lr=5e-5, betas=(0.9,0.98), eps=1e-6, weight_decay=0.2)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=3, factor=0.5, verbose=True)
+    optimizer = torch.optim.RMSprop(clip_model.parameters(), lr=lr)
+    decay_lr_schedule_fn = create_learning_rate_fn(
+        optimizer,
+        len(trainset),
+        batch_size,
+        epochs,
+        warmup_steps,
+        lr,
+        linear=False,  # set False to activate cosine annealing
+    )
 
     for epoch in range(100):  # Set a maximum number of epochs
         train_loss = train_one_epoch(
@@ -294,19 +406,22 @@ def main():
             clip_model,
             clip_preprocess,
             loader,
-            optimizer
+            optimizer,
+            decay_lr_schedule_fn
         )
 
+        """
         val_loss = validate_one_epoch(
             epoch,
             val_loader,
             clip_model,
             clip_preprocess,
             loader,
-            scheduler
+            decay_lr_schedule_fn
         )
+        """
 
-        l = val_loss
+        l = train_loss
 
         # Inside your training loop
         if l < best_loss:

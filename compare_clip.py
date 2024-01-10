@@ -77,10 +77,12 @@ test_loader = torch.utils.data.DataLoader(
 )
 
 # Load original and fine-tuned CLIP models
-original_clip_model, _ = clip.load("ViT-B/32", device=device)
+original_clip_model, original_clip_preprocess = clip.load("ViT-B/32", device=device)
+original_clip_model.float()
 
 # Load fine-tuned clip model
-fine_tuned_clip_model, _ = clip.load("ViT-B/32", device=device)
+fine_tuned_clip_model, fine_tuned_clip_preprocess = clip.load("ViT-B/32", device=device)
+fine_tuned_clip_model.float()
 
 state_dict = torch.load(model_save_path, map_location=device)
 fine_tuned_clip_model.load_state_dict(state_dict)
@@ -96,45 +98,83 @@ clip_preprocess = Compose([
 loader = ImageLoader(image_loader_path)
 
 def gen_word_objs_embeddings(obj, clip_model):
-        shape_description = gen_shape_description(obj)
-        text = clip.tokenize(shape_description).to(device)
+    shape_description = gen_shape_description(obj)
+    text = clip.tokenize(shape_description).to(device)
 
-        with torch.no_grad():
-            text_features = clip_model.encode_text(text)
+    with torch.no_grad():
+        text_features = clip_model.encode_text(text)
 
-        return text_features
+    return text_features
 
-def evaluate_model(model, dataloader, device):
+def calculate_cos_angle_matrix(vector_1, vector_2):
+    # Ensure the vectors are PyTorch tensors and flatten them if they are 2D
+    vector_1 = torch.tensor(vector_1).flatten()
+    vector_2 = torch.tensor(vector_2).flatten()
+
+    vectors = [vector_1, vector_2]
+    n = len(vectors)
+    cos_angle_matrix = torch.zeros((n, n))
+
+    for i in range(n):
+        for j in range(n):
+            # Calculate the dot product of the two vectors
+            dot_product = torch.matmul(vectors[i], vectors[j])
+
+            # Calculate the magnitudes of the vectors
+            magnitude_a = torch.norm(vectors[i])
+            magnitude_b = torch.norm(vectors[j])
+
+            # Calculate the cosine of the angle
+            cos_theta = dot_product / (magnitude_a * magnitude_b)
+
+            # Ensure the cosine value is within the valid range [-1, 1]
+            cos_theta = torch.clamp(cos_theta, -1, 1)
+
+            # Assign the cosine value to the matrix
+            cos_angle_matrix[i, j] = cos_theta
+
+    return cos_angle_matrix
+
+def evaluate_model(model, dataloader, device, preprocess=clip_preprocess):
     model.eval()
     batch_similarities_same_class = []
     batch_similarities_different_class = []
 
     with torch.no_grad():
-        for batch in tqdm(dataloader):
+        for batch in tqdm(dataloader, position=0, desc="Batch Progress"):
             # Unpacking the batch data
-            # _, _, _, _, image_names, _, descriptions = batch
             _, _, _, _, _, _, _, _, image_names, _, descriptions = batch
+
+            cash_descriptions = [gen_word_objs_embeddings(description, model) for description in tqdm(descriptions, position=1, desc="Descriptions Progress", leave=False)]
 
             same_class_similarity = []
             different_class_similarity = []
-            for i in range(len(image_names)):
+            for i in tqdm(range(len(image_names)), position=1, desc="Image Names Progress", leave=False):
                 anchor_img_name = image_names[i]
                 anchor_desc = descriptions[i]
 
                 # Load and preprocess the anchor image
                 anchor_img = loader(anchor_img_name)
-                anchor_img = clip_preprocess(anchor_img).unsqueeze(0).to(device)
+                anchor_img = preprocess(anchor_img).unsqueeze(0).to(device)
 
                 anchor_image_features = model.encode_image(anchor_img)
-                anchor_text_features = gen_word_objs_embeddings(anchor_desc, model)
+                anchor_text_features = cash_descriptions[i]
 
-                for j in range(len(image_names)):
+                for j in tqdm(range(len(image_names)), position=2, desc="Comparison Progress", leave=False):
                     if i != j:
+                        negative_img_name = image_names[j]
                         negative_desc = descriptions[j]
-                        negative_text_features = gen_word_objs_embeddings(negative_desc, model)
+
+                        negative_img = loader(negative_img_name)
+                        negative_img = preprocess(negative_img).unsqueeze(0).to(device)
+
+                        negative_image_features = model.encode_image(negative_img)
+                        negative_text_features = cash_descriptions[j]
 
                         # Calculate cosine similarity
-                        similarity = torch.nn.functional.cosine_similarity(anchor_text_features, negative_text_features).mean().item()
+                        # similarity = torch.nn.functional.cosine_similarity(anchor_text_features, negative_text_features).mean().item()
+
+                        similarity = torch.nn.functional.cosine_similarity(anchor_image_features, negative_image_features).mean().item()
 
                         # Check if descriptions are of the same class
                         if anchor_desc == negative_desc:
@@ -145,10 +185,12 @@ def evaluate_model(model, dataloader, device):
             # Average similarity for the batch for same and different classes
             if same_class_similarity:
                 batch_similarities_same_class.append(np.mean(same_class_similarity))
+                
             if different_class_similarity:
                 batch_similarities_different_class.append(np.mean(different_class_similarity))
 
     return batch_similarities_same_class, batch_similarities_different_class
+
 
 def summarize_results(original_same_class, original_different_class, fine_tuned_same_class, fine_tuned_different_class):
     # Compute average similarities
@@ -173,8 +215,8 @@ def summarize_results(original_same_class, original_different_class, fine_tuned_
 
 
 # Evaluate both models
-original_distances_same, original_distances_diffrent = evaluate_model(original_clip_model, test_loader, device)
-fine_tuned_distances_same, fine_tuned_distances_same_diffrent = evaluate_model(fine_tuned_clip_model, test_loader, device)
+fine_tuned_distances_same, fine_tuned_distances_same_diffrent = evaluate_model(fine_tuned_clip_model, test_loader, device, fine_tuned_clip_preprocess)
+original_distances_same, original_distances_diffrent = evaluate_model(original_clip_model, test_loader, device, fine_tuned_clip_preprocess)
 
 # Compare and summarize results
 summarize_results(original_distances_same, original_distances_diffrent, fine_tuned_distances_same, fine_tuned_distances_same_diffrent)

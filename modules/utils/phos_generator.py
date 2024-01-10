@@ -4,10 +4,11 @@ import numpy as np
 from pathlib import Path
 from num2words import num2words
 
+from typing import List
+
 from typing import TextIO
 import os
 
-from utils.dbe import dbe
 
 
 # Input: CSV file name that has shape counts for each alphabet
@@ -95,6 +96,33 @@ def gen_phos_label(word_list) -> dict:
     return label
 
 
+# Input: A word(string)
+# Output: Each level of PHOC vector
+## Levels 1,2,3,4,5
+def generate_label_for_description(word: str) -> List[np.ndarray]:
+    # TODO: Write what part of the word is considred. So for any layer other than 0 the word will be split into multiple parts
+    vector = word_vector(word)
+    L = len(word)
+
+    return_vector = [[vector]]
+
+    for split in range(2, 6):
+        parts = L // split
+        vec = list()
+        temp_vector = np.array([])  # Initialize a temporary vector for each split
+
+        for mul in range(split - 1):
+            vec.append(word_vector(word[mul * parts:mul * parts + parts]))
+            # temp_vector = np.concatenate((temp_vector, word_vector(word[mul * parts:mul * parts + parts])), axis=0)
+
+        vec.append(word_vector(word[(split - 1) * parts:L]))
+        # temp_vector = np.concatenate((temp_vector, word_vector(word[(split - 1) * parts:L])), axis=0)
+
+        return_vector.append(vec)  # Append the temporary vector to the list
+
+    return return_vector
+
+
 # Input: A text file name that has a list of words(strings)
 # Output: A dictionary of PHOS vectors in which the words serve as the key
 def label_maker(word_txt: TextIO) -> dict:
@@ -109,7 +137,7 @@ def label_maker(word_txt: TextIO) -> dict:
     # write_s_file(s_matrix_csv, s_matrix, word_list)
 
 
-def gen_shape_description(word: str) -> list:
+def gen_shape_description(word: str) -> List[str]:
     single_phos = word_vector(word)
 
     shapes = [
@@ -130,14 +158,26 @@ def gen_shape_description(word: str) -> list:
 
     shape_description = []
 
-    for idx, shape in enumerate(single_phos[0]):
-        amout_of_shapes = num2words(idx, to='cardinal')
-        shape_description.append(f'There are {amout_of_shapes} {shapes[idx]} present in the word.\n')
+    phos = generate_label_for_description(word)
+
+    for pyramid_level_idx, pyramid_level_data in enumerate(phos):
+        pyramid_level_ordinal_idx = num2words(pyramid_level_idx + 1, to='ordinal')
+
+        for split, phos in enumerate(pyramid_level_data):
+            shape_description.append(f'In the {pyramid_level_ordinal_idx} level (split {split})')
+
+            for idx, shape in enumerate(phos[0]):
+                text = f', shape {idx + 1} is present {int(shape)} times'
+
+                if idx == len(phos[0]) - 1:
+                    text += '.\n'
+
+                shape_description.append(text)
 
     return shape_description
 
 
-def gen_shape_description_from_phos(phos) -> list:
+def gen_shape_description_from_phos(phos) -> List[str]:
     shape_description = []
 
     for idx, shape in enumerate(single_phos):

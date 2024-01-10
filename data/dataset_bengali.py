@@ -429,7 +429,6 @@ class CompositionDataset(Dataset):
 
         image, attr, obj = self.data[index]
 
-
         # Decide what to output
         if not self.update_features:
             img = self.activations[image]
