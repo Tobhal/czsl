@@ -24,10 +24,10 @@ from utils.dbe import dbe
 
 # PHOSC utils
 from modules.utils import set_phos_version, set_phoc_version
-
-from timm import create_model
 from modules import models, residualmodels
+from timm import create_model
 
+# CLIP
 import clip
 
 best_auc = 0
@@ -59,10 +59,11 @@ def main():
 
     # Sett phos and phoc language
     set_phos_version(args.phosc_version)
-    set_phoc_version(args.phosc_version)  
+    set_phoc_version(args.phosc_version)
 
-    model_save_path = ospj('models', 'fine-tuned_clip', args.splitname, 'model.pth')
+
     # Define CLIP model
+    model_save_path = ospj('models', 'fine-tuned_clip', args.splitname, 'model.pth')
     clip_model, clip_preprocess = clip.load("ViT-B/32", device=device)
 
     state_dict = torch.load(model_save_path, map_location=device)
@@ -122,7 +123,86 @@ def main():
     train = train_normal
 
     evaluator_val = Evaluator(testset, model)
+
+    """
+    # Function to process data from a loader and get embeddings
+    def get_embeddings(loader, model):
+        embeddings = []
+
+        for i, batch in enumerate(loader):
+            obj = batch[2].to(device)  # Move obj to the correct device
+            obj_embedding = model.obj_embedder(obj)  # Pass obj as an argument
+            embeddings.append(obj_embedding)
+
+        return torch.vstack(embeddings)
+
+    # Get embeddings for train and test sets
+    train_embeddings = get_embeddings(trainloader, model)
+    test_embeddings = get_embeddings(testloader, model)
+
+    def calculate_cos_angle_matrix(vector_1, vector_2):
+        n = len(vector_1)
+        cos_angle_matrix = torch.zeros((n, n))
+
+        for i in range(n):
+            for j in range(n):
+                # Calculate the dot product of the two vectors
+                dot_product = torch.dot(vector_1[i], vector_2[j])
+
+                # Calculate the magnitudes of the vectors
+                magnitude_a = torch.norm(vector_1[i])
+                magnitude_b = torch.norm(vector_2[j])
+
+                # Calculate the cosine of the angle
+                cos_theta = dot_product / (magnitude_a * magnitude_b)
+
+                # Ensure the cosine value is within the valid range [-1, 1] for arccos
+                cos_theta = torch.clamp(cos_theta, -1, 1)
+
+                # Assign the cosine value to the matrix
+                cos_angle_matrix[i, j] = cos_theta
+
+        return cos_angle_matrix
     
+    def save_angle(angle, filename_part):
+        # Convert the matrix to a NumPy array
+        cos_angle_np = angle.cpu().detach().numpy()
+
+        # Save the matrix to a file as raw text
+        filename = f"cos_angle_all_{filename_part}.csv"
+        file_path = ospj(DATA_FOLDER, args.data_dir, args.splitname, filename)
+
+        with open(file_path, 'w') as file:
+            for row in cos_angle_np:
+                # Convert each row to a string and write it to the file
+                row_str = ','.join(map(str, row))
+                file.write(row_str + '\n')
+
+    cos = calculate_cos_angle_matrix(test_embeddings, test_embeddings)
+ 
+    min = torch.min(cos).item()
+    mean = torch.mean(cos)
+    std = torch.std(cos)
+
+    dbe(min, mean, std)
+
+    save_angle(
+        calculate_cos_angle_matrix(test_embeddings, test_embeddings), 
+        'test-test'
+    )
+    save_angle(
+        calculate_cos_angle_matrix(test_embeddings, train_embeddings), 
+        'test-train'
+    )
+    save_angle(
+        calculate_cos_angle_matrix(train_embeddings, test_embeddings), 
+        'train-test'
+    )
+    save_angle(
+        calculate_cos_angle_matrix(train_embeddings, train_embeddings), 
+        'train-train'
+    )
+    """
     print(model)
 
     start_epoch = 0

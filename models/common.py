@@ -455,8 +455,15 @@ class Evaluator:
 
         #################### Calculating AUC
         scores = predictions['scores']
+        # dbe(scores, pair_truth)
         # getting score for each ground truth class
-        correct_scores = scores[torch.arange(scores.shape[0]), pair_truth][unseen_ind]
+
+        # ERROR: Here there is a mistake with getting the score values. The max value in 'pair_truth' is larger than what is posible... temp "fix" implemented
+        # Ensure that pair_truth only contains valid indices for the second dimension of scores
+        max_index = scores.shape[1] - 1
+        valid_pair_truth = pair_truth.clamp(max=max_index)
+
+        correct_scores = scores[torch.arange(scores.shape[0]), valid_pair_truth][unseen_ind]
 
         # Getting top predicted score for these unseen classes
         max_seen_scores = predictions['scores'][unseen_ind][:, self.seen_mask].topk(topk, dim=1)[0][:, topk - 1]
@@ -468,17 +475,22 @@ class Evaluator:
         unseen_matches = stats['closed_unseen_match'].bool()
         correct_unseen_score_diff = unseen_score_diff[unseen_matches] - 1e-4
 
+        # dbe(correct_unseen_score_diff, calls_before_exit=20)
+
         # sorting these diffs
         correct_unseen_score_diff = torch.sort(correct_unseen_score_diff)[0]
         magic_binsize = 20
+
+        # dbe(correct_unseen_score_diff)
+        
         # getting step size for these bias values
         bias_skip = max(len(correct_unseen_score_diff) // magic_binsize, 1)
+
         # Getting list
         biaslist = correct_unseen_score_diff[::bias_skip]
 
         seen_match_max = float(stats['closed_seen_match'].mean())
         unseen_match_max = float(stats['closed_unseen_match'].mean())
-        seen_accuracy, unseen_accuracy = [], []
 
         # Go to CPU
         base_scores = {k: v.to('cpu') for k, v in allpred.items()}
@@ -489,15 +501,20 @@ class Evaluator:
             [allpred[(attr,obj)] for attr, obj in self.dset.pairs], 1
         ) # (Batch, #pairs)
 
+        # dbe(biaslist)
+
+        seen_accuracy, unseen_accuracy = [], []
         for bias in biaslist:
             scores = base_scores.clone()
 
             results = self.score_fast_model(scores, obj_truth, bias = bias, topk = topk)
             results = results['closed'] # we only need biased
-            results = _process(results, p=True)
+            results = _process(results, p=False)
 
             seen_match = float(results[3].mean())
             unseen_match = float(results[4].mean())
+
+            print(f'{unseen_accuracy=}')
 
             seen_accuracy.append(seen_match)
             unseen_accuracy.append(unseen_match)
@@ -505,6 +522,7 @@ class Evaluator:
         seen_accuracy.append(seen_match_max)
         unseen_accuracy.append(unseen_match_max)
         seen_accuracy, unseen_accuracy = np.array(seen_accuracy), np.array(unseen_accuracy)
+
         area = np.trapz(seen_accuracy, unseen_accuracy)
 
         for key in stats:

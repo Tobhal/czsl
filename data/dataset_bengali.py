@@ -6,10 +6,12 @@ import os
 import random
 from os.path import join as ospj
 from glob import glob 
+
 #torch libs
 from torch.utils.data import Dataset
 import torch
 import torchvision.transforms as transforms
+
 #local libs
 from utils.utils import get_norm_values, chunks
 from models.image_extractor import get_image_extractor
@@ -94,6 +96,7 @@ def filter_data(all_data, pairs_gt, topk = 5):
     for current in pairs_gt:
         if current in pairs:
             counter+=1
+
     print('Matches ', counter, ' out of ', len(pairs_gt))
     print('Samples ', len(data), ' out of ', len(all_data))
     return data, sorted(list(set(pairs))), sorted(list(set(attr))), sorted(list(set(obj)))
@@ -457,17 +460,19 @@ class CompositionDataset(Dataset):
 
             comm_attr = self.sample_affordance(inv_attr, obj) # attribute for commutative regularizer
             
-            data += [neg_attr, neg_obj, inv_attr, comm_attr, image, attr, obj]
-            # data += [neg_attr, neg_obj, inv_attr, comm_attr]
+            # data += [neg_attr, neg_obj, inv_attr, comm_attr, image, attr, obj]
+            data += [neg_attr, neg_obj, inv_attr, comm_attr]
 
         # Return image paths if requested as the last element of the list
         if self.return_images and self.phase != 'train':
             data.append(image)
 
+        """
         if self.phase == 'test' or self.phase == 'val':
             data.append(image)
             data.append(attr)
             data.append(obj)
+        """
 
         return data
     

@@ -21,12 +21,15 @@ def compute_cosine_similarity(names, weights, return_dict=True):
     pairing_names = list(product(names, names))
     normed_weights = F.normalize(weights,dim=1)
     similarity = torch.mm(normed_weights, normed_weights.t())
+
     if return_dict:
         dict_sim = {}
         for i,n in enumerate(names):
             for j,m in enumerate(names):
-                dict_sim[(n,m)]=similarity[i,j].item()
+                dict_sim[(n,m)] = similarity[i,j].item()
+
         return dict_sim
+
     return pairing_names, similarity.to('cpu')
 
 class CompCos(nn.Module):
@@ -116,7 +119,8 @@ class CompCos(nn.Module):
 
         input_dim = args.emb_dim
         self.attr_embedder = nn.Embedding(len(dset.attrs), input_dim)
-        self.obj_embedder = nn.Embedding(len(dset.objs) * 13, input_dim)    # FIX is this correct?
+
+        self.obj_embedder = nn.Embedding(len(dset.objs) * 210, input_dim)    # FIX is this correct?
 
         self.idx2attr_emb = self.gen_word_attrs_embeddings(dset.attrs)
         self.emb_attrs = [self.idx2attr_emb[val.item()] for val in self.train_attrs]
@@ -135,6 +139,7 @@ class CompCos(nn.Module):
         if args.static_inp:
             for param in self.attr_embedder.parameters():
                 param.requires_grad = False
+                
             for param in self.obj_embedder.parameters():
                 param.requires_grad = False
 
@@ -218,10 +223,8 @@ class CompCos(nn.Module):
 
 
     def compose(self, attrs, objs):
-        dbe(attrs, objs)
-
-        attrs, objs = self.attr_embedder(attrs), self.obj_embedder(objs)
-        # attrs, objs = self.emb_attrs, self.obj_embedder(objs)
+        # attrs, objs = self.attr_embedder(attrs), self.obj_embedder(objs)
+        attrs, objs = self.emb_attrs, self.obj_embedder(objs)   # Turning off state embeddings for testing
 
         inputs = torch.cat([attrs, objs], 1)
 
@@ -344,7 +347,6 @@ class CompCos(nn.Module):
         pair_embed = self.compose(self.train_attrs, self.train_objs).permute(1, 0)
         img_feats_normed = F.normalize(img_feats, dim=1)
 
-
         pair_pred = torch.matmul(img_feats_normed, pair_embed)
 
         loss_cos = F.cross_entropy(self.scale * pair_pred, pairs)
@@ -360,6 +362,3 @@ class CompCos(nn.Module):
                 loss, pred = self.val_forward(x)
 
         return loss, pred
-
-
-

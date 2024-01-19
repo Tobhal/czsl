@@ -14,12 +14,19 @@ import os
 from os.path import join as ospj
 
 # Local imports
-from data import dataset as dset
+from data import dataset_bengali as dset
 from models.common import Evaluator
 from utils.utils import load_args
 from utils.config_model import configure_model
 from flags import parser
 
+# PHOSC utils
+from modules.utils import set_phos_version, set_phoc_version
+from modules import models, residualmodels
+from timm import create_model
+
+# CLIP
+import clip
 
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -31,16 +38,53 @@ def main():
     config = [os.path.join(logpath, _) for _ in os.listdir(logpath) if _.endswith('yml')][0]
     load_args(config, args)
 
+    # Define phosc model
+    phosc_model = create_model(
+        model_name=args.model_name,
+        phos_size=args.phos_size,
+        phoc_size=args.phoc_size,
+        phos_layers=args.phos_layers,
+        phoc_layers=args.phoc_layers,
+        dropout=args.dropout
+    ).to(device)
+
+    args.phosc_model = phosc_model
+
+    # Sett phos and phoc language
+    set_phos_version(args.phosc_version)
+    set_phoc_version(args.phosc_version)
+
+    # CLIP model
+    model_save_path = ospj('models', 'fine-tuned_clip', args.splitname, 'model.pth')
+    clip_model, clip_preprocess = clip.load("ViT-B/32", device=device)
+
+    state_dict = torch.load(model_save_path, map_location=device)
+    clip_model.load_state_dict(state_dict)
+
+    args.clip_model = clip_model
+    args.clip_preprocess = clip_preprocess
+
     # Get dataset
     trainset = dset.CompositionDataset(
         root=os.path.join(DATA_FOLDER,args.data_dir),
         phase='train',
         split=args.splitname,
         model=args.image_extractor,
-        update_features=args.update_features,
+        num_negs=args.num_negs,
+        pair_dropout=args.pair_dropout,
+        update_features = args.update_features,
         train_only=args.train_only,
-        subset=args.subset,
-        open_world=args.open_world
+        open_world=args.open_world,
+        augmented=args.augmented,
+        phosc_model=phosc_model,
+        clip_model=clip_model
+    )
+
+    trainloader = torch.utils.data.DataLoader(
+        trainset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=args.workers
     )
 
     valset = dset.CompositionDataset(
@@ -48,32 +92,42 @@ def main():
         phase='val',
         split=args.splitname,
         model=args.image_extractor,
-        subset=args.subset,
-        update_features=args.update_features,
-        open_world=args.open_world
+        num_negs=args.num_negs,
+        pair_dropout=args.pair_dropout,
+        update_features = args.update_features,
+        train_only=args.train_only,
+        open_world=args.open_world,
+        augmented=args.augmented,
+        phosc_model=phosc_model,
+        clip_model=clip_model
     )
 
     valoader = torch.utils.data.DataLoader(
         valset,
-        batch_size=args.test_batch_size,
+        batch_size=args.batch_size,
         shuffle=False,
-        num_workers=8)
+        num_workers=args.workers
+    )
 
     testset = dset.CompositionDataset(
         root=os.path.join(DATA_FOLDER,args.data_dir),
-        phase='test',
+        phase=args.test_set,
         split=args.splitname,
         model =args.image_extractor,
         subset=args.subset,
         update_features = args.update_features,
-        open_world=args.open_world
+        open_world=args.open_world,
+        augmented=args.augmented,
+        phosc_model=phosc_model,
+        clip_model=clip_model
     )
+
     testloader = torch.utils.data.DataLoader(
         testset,
         batch_size=args.test_batch_size,
         shuffle=False,
-        num_workers=args.workers)
-
+        num_workers=args.workers
+    )
 
     # Get model and optimizer
     image_extractor, model, optimizer = configure_model(args, trainset)
@@ -121,7 +175,8 @@ def main():
     evaluator = Evaluator(testset, model)
 
     with torch.no_grad():
-        test(image_extractor, model, testloader, evaluator, args, threshold)
+        # test(image_extractor, model, testloader, evaluator, args, threshold)
+        test(image_extractor, model, trainloader, evaluator, args, threshold)
 
 
 def test(image_extractor, model, testloader, evaluator,  args, threshold=None, print_results=True):
@@ -163,7 +218,7 @@ def test(image_extractor, model, testloader, evaluator,  args, threshold=None, p
                     [all_pred[i][k].to('cpu') for i in range(len(all_pred))])
         else:
             for k in all_pred[0].keys():
-                all_pred_dict[k] = torch.cat(
+                all_pred_dict[k] = torch.stack(
                     [all_pred[i][k] for i in range(len(all_pred))])
 
         # Calculate best unseen accuracy
