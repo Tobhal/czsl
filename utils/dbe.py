@@ -3,6 +3,7 @@ import os
 
 # Typehinting
 from os import PathLike
+from typing import Any, Callable
 
 # Global variable to control printing of caller details
 PRINT_CALLER_DETAILS = False
@@ -30,12 +31,13 @@ def file_exists(filepath: PathLike) -> bool:
 
 
 def dbe(
-        *args, 
-        should_exit=EXIT_AFTER_PRINT, 
-        print_caller_details=PRINT_CALLER_DETAILS, 
-        calls_before_exit=CALL_LIMIT, 
-        print_when_not_exit=PRINT_WHEN_NOT_EXIT,
-        print_and_exit=PRINT_AND_EXIT
+        *args: Any, 
+        should_exit: bool = EXIT_AFTER_PRINT, 
+        print_caller_details: bool = PRINT_CALLER_DETAILS, 
+        calls_before_exit: int = CALL_LIMIT, 
+        print_when_not_exit: bool = PRINT_WHEN_NOT_EXIT,
+        print_and_exit: bool = PRINT_AND_EXIT,
+        eval: Callable[[], bool] = None
     ):
     """
     This function, 'dbe' (Debug and Exit), is designed for debugging purposes. 
@@ -43,35 +45,34 @@ def dbe(
     the program based on the provided arguments.
 
     Parameters:
-    *args: 
-        A variable number of arguments. The function prints the names and values 
-        of these arguments. It requires at least one argument.
+    *args (Any): 
+        A variable number of arguments of any type. The function prints the names 
+        and values of these arguments. It requires at least one argument.
 
     should_exit (bool, optional): 
         A flag to control whether the program should exit after printing. 
-        If True, the program will exit after the debug print if the number 
-        of calls has reached 'calls_before_exit'. Default is set by the 
-        global variable 'EXIT_AFTER_PRINT'.
+        Default is set by the global variable 'EXIT_AFTER_PRINT'.
 
     print_caller_details (bool, optional): 
-        If set to True, the function prints details of the caller, including 
-        the function name, module name, and file path. Default is set by the 
-        global variable 'PRINT_CALLER_DETAILS'.
+        If True, the function prints details of the caller. 
+        Default is set by the global variable 'PRINT_CALLER_DETAILS'.
 
     calls_before_exit (int, optional): 
-        A limit on the number of calls to this function before the program 
-        exits (if 'should_exit' is True). Default is set by the global variable 
-        'CALL_LIMIT'.
+        The number of calls to this function before the program exits, 
+        if 'should_exit' is True. Default is set by the global variable 'CALL_LIMIT'.
 
     print_when_not_exit (bool, optional): 
         Controls if the function should print the debug information in calls 
-        where it is not set to exit. If False, it only prints when exiting. 
-        Default is set by the global variable 'PRINT_WHEN_NOT_EXIT'.
+        where it is not set to exit. Default is set by the global variable 
+        'PRINT_WHEN_NOT_EXIT'.
 
     print_and_exit (bool, optional): 
-        A flag to determine if the function should perform its operations 
-        (print and exit). If False, the function does nothing. Default is 
+        Determines if the function should perform its operations. Default is 
         set by the global variable 'PRINT_AND_EXIT'.
+
+    eval (Callable[[], bool], optional): 
+        A lambda function or callable that returns a boolean, used to determine 
+        whether to print and exit. Overrides 'print_and_exit' if provided.
 
     Raises:
     ValueError: If no arguments are passed to the function.
@@ -82,6 +83,10 @@ def dbe(
     """
     global CALL_COUNT
     CALL_COUNT += 1
+
+    # Determine if print and exit should be overridden by custom evaluation
+    if eval is not None:
+        print_and_exit = eval()
 
     if not print_and_exit or CALL_COUNT < calls_before_exit and not print_when_not_exit:
         return  # Do nothing until the CALL_LIMIT is reached
