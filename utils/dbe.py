@@ -37,7 +37,49 @@ def dbe(
         print_when_not_exit=PRINT_WHEN_NOT_EXIT,
         print_and_exit=PRINT_AND_EXIT
     ):
-    """Print names and values of input variables. Exit the program if should_exit is True."""
+    """
+    This function, 'dbe' (Debug and Exit), is designed for debugging purposes. 
+    It prints the names and values of input variables and can conditionally exit 
+    the program based on the provided arguments.
+
+    Parameters:
+    *args: 
+        A variable number of arguments. The function prints the names and values 
+        of these arguments. It requires at least one argument.
+
+    should_exit (bool, optional): 
+        A flag to control whether the program should exit after printing. 
+        If True, the program will exit after the debug print if the number 
+        of calls has reached 'calls_before_exit'. Default is set by the 
+        global variable 'EXIT_AFTER_PRINT'.
+
+    print_caller_details (bool, optional): 
+        If set to True, the function prints details of the caller, including 
+        the function name, module name, and file path. Default is set by the 
+        global variable 'PRINT_CALLER_DETAILS'.
+
+    calls_before_exit (int, optional): 
+        A limit on the number of calls to this function before the program 
+        exits (if 'should_exit' is True). Default is set by the global variable 
+        'CALL_LIMIT'.
+
+    print_when_not_exit (bool, optional): 
+        Controls if the function should print the debug information in calls 
+        where it is not set to exit. If False, it only prints when exiting. 
+        Default is set by the global variable 'PRINT_WHEN_NOT_EXIT'.
+
+    print_and_exit (bool, optional): 
+        A flag to determine if the function should perform its operations 
+        (print and exit). If False, the function does nothing. Default is 
+        set by the global variable 'PRINT_AND_EXIT'.
+
+    Raises:
+    ValueError: If no arguments are passed to the function.
+
+    Note:
+    This function modifies a global variable 'CALL_COUNT', which keeps 
+    track of the number of times it has been called.
+    """
     global CALL_COUNT
     CALL_COUNT += 1
 
