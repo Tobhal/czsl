@@ -6,18 +6,19 @@ import os
 import random
 from os.path import join as ospj
 from glob import glob 
+
 #torch libs
 from torch.utils.data import Dataset
 import torch
 import torchvision.transforms as transforms
+
 #local libs
 from utils.utils import get_norm_values, chunks
 from models.image_extractor import get_image_extractor
 from itertools import product
+from flags import device
 
 from utils.dbe import dbe
-
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 class ImageLoader:
     def __init__(self, root):

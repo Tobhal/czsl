@@ -18,12 +18,13 @@ from models.image_extractor import get_image_extractor
 from itertools import product
 
 from utils.dbe import dbe
+from flags import device
 
 # Typehinting
-from typing import Union
-from pathlib import Path
+from typing import Union, Literal, List
+DatasetLiteral = Literal['train', 'val', 'test']
 
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+from pathlib import Path
 
 class ImageLoader:
     def __init__(self, root: Union[str, Path]):
@@ -115,8 +116,8 @@ class CompositionDataset(Dataset):
     '''
     def __init__(
         self,
-        root,
-        phase,
+        root: Path,
+        phase: Literal['train', 'val', 'test', 'all'],
         split = 'compositional-split',
         model = 'resnet18',
         norm_family = 'imagenet',
@@ -154,14 +155,33 @@ class CompositionDataset(Dataset):
         # Clean only was here
         self.obj2idx = {obj: idx for idx, obj in enumerate(self.objs)}
         self.attr2idx = {attr : idx for idx, attr in enumerate(self.attrs)}
+
         if self.open_world:
             self.pairs = self.full_pairs
 
         self.all_pair2idx = {pair: idx for idx, pair in enumerate(self.pairs)}
 
+        self.pair2idx = {}
+        self.data = []
+
+        """
+        if 'train' in self.dataset:
+            self.pair2idx = {**self.pair2idx, **{pair: idx for idx, pair in enumerate(self.train_pairs)}}
+            self.data += self.train_data
+        
+        if 'val' in self.dataset:
+            self.pair2idx = {**self.pair2idx, **{pair: idx for idx, pair in enumerate(self.val_pairs)}}
+            self.data += self.val_data
+
+        if 'test' in self.dataset:
+            self.pair2idx = {**self.pair2idx, **{pair: idx for idx, pair in enumerate(self.test_pairs)}}
+            self.data += self.test_data
+
+        """
         if train_only and self.phase == 'train':
             print('Using only train pairs')
             self.pair2idx = {pair : idx for idx, pair in enumerate(self.train_pairs)}
+            # self.pair2idx = {pair : idx for idx, pair in enumerate(self.pairs)}
         elif self.phase == 'val':
             print('Using only validation pairs')
             self.pair2idx = {pair : idx for idx, pair in enumerate(self.val_pairs)}
@@ -169,29 +189,33 @@ class CompositionDataset(Dataset):
             print('Using all pairs')
             self.pair2idx = {pair : idx for idx, pair in enumerate(self.pairs)}
         
+
         if self.phase == 'train':
             self.data = self.train_data
+            # self.data = self.test_data + self.val_data + self.train_data
         elif self.phase == 'val':
             print('Using validation data')
             self.data = self.val_data
         elif self.phase == 'test':
-            self.data = self.test_data
+            self.data = self.test_data + self.train_data
+            # self.data = self.test_data + self.val_data
         elif self.phase == 'all':
             print('Using all data')
             self.data = self.train_data + self.val_data + self.test_data
         else:
             raise ValueError('Invalid training phase')
-        
+
+
         self.all_data = self.train_data + self.val_data + self.test_data
         print('Dataset loaded')
 
         print('Train pairs: {}, Validation pairs: {}, Test Pairs: {}'.format(
-            len(self.train_pairs), len(self.val_pairs), len(self.test_pairs))
-        )
+            len(self.train_pairs), len(self.val_pairs), len(self.test_pairs)
+        ))
 
         print('Train images: {}, Validation images: {}, Test images: {}'.format(
-            len(self.train_data), len(self.val_data), len(self.test_data))
-        )
+            len(self.train_data), len(self.val_data), len(self.test_data)
+        ))
 
         if subset:
             ind = np.arange(len(self.data))
@@ -203,6 +227,7 @@ class CompositionDataset(Dataset):
         self.obj_affordance = {}
         self.train_obj_affordance = {}
         for _obj in self.objs:
+            # candidates = [attr for (_, attr, obj) in self.train_data+self.test_data if obj==_obj]
             candidates = [attr for (_, attr, obj) in self.train_data+self.test_data if obj==_obj]
             self.obj_affordance[_obj] = list(set(candidates))
 
@@ -279,10 +304,12 @@ class CompositionDataset(Dataset):
             ospj(self.root, self.split, f'{train}_pairs.csv'),
             f'{train}'
         )
+
         vl_attrs, vl_objs, vl_pairs, vl_data = parse_pairs(
             ospj(self.root, self.split, 'val_pairs.csv'),
             'val'
         )
+
         ts_attrs, ts_objs, ts_pairs, ts_data = parse_pairs(
             ospj(self.root, self.split, 'test_pairs.csv'),
             'test'
@@ -337,8 +364,8 @@ class CompositionDataset(Dataset):
             Tuple of a different attribute, object indexes
         '''
         new_attr, new_obj = self.sample_pairs[np.random.choice(
-            len(self.sample_pairs))
-        ]
+            len(self.sample_pairs)
+        )]
 
         while new_attr == attr and new_obj == obj:
             new_attr, new_obj = self.sample_pairs[

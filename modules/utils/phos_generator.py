@@ -9,6 +9,7 @@ from typing import List
 from typing import TextIO
 import os
 
+from utils.dbe import dbe
 
 
 # Input: CSV file name that has shape counts for each alphabet
@@ -137,6 +138,19 @@ def label_maker(word_txt: TextIO) -> dict:
     # write_s_file(s_matrix_csv, s_matrix, word_list)
 
 
+def gen_shape_description_simple(word: str) -> List[str]:
+    single_phos = word_vector(word)
+
+    shape_description = []
+
+    for pyramid_data in single_phos[0]:
+        shape_description.append(f'{int(pyramid_data)}')
+
+    shape = [''.join(shape_description)]
+
+    return shape
+
+
 def gen_shape_description(word: str) -> List[str]:
     single_phos = word_vector(word)
 
@@ -155,6 +169,8 @@ def gen_shape_description(word: str) -> List[str]:
         'left small semi-circle',
         'right top hood'
     ]
+
+    return gen_shape_description_simple(word)
 
     shape_description = []
 

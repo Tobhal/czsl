@@ -6,8 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.init import xavier_uniform_
-
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+from flags import device
 
 def normt_spm(mx, method='in'):
     if method == 'in':

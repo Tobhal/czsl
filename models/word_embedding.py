@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 import clip
-from flags import DATA_FOLDER
+from flags import DATA_FOLDER, device
 
 from timm import create_model
 from modules.utils import set_phos_version, set_phoc_version, generate_label
@@ -76,7 +76,6 @@ def load_clip_embeddings(vocab):
     """
     print('Loading CLIP embeddings')
     # Load CLIP model
-    device = "cuda" if torch.cuda.is_available() else "cpu"
     model, preprocess = clip.load("ViT-B/32", device=device)
     
     print('Tokenize')

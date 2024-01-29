@@ -1,6 +1,10 @@
 import argparse
+import torch
 
 DATA_FOLDER = "../data/czsl/DATA_ROOT/"
+
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+# device = 'cpu'
 
 parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 

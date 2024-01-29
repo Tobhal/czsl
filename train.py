@@ -16,11 +16,13 @@ import csv
 #Local imports
 from data import dataset_bengali as dset
 from models.common import Evaluator
-from flags import parser, DATA_FOLDER
+from flags import parser, DATA_FOLDER, device
 
 from utils.utils import save_args, load_args
 from utils.config_model import configure_model
 from utils.dbe import dbe
+
+from utils.combined_data_loader import CombinedLoader
 
 # PHOSC utils
 from modules.utils import set_phos_version, set_phoc_version
@@ -33,13 +35,13 @@ import clip
 best_auc = 0
 best_hm = 0
 compose_switch = True
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def main():
     # Get arguments and start logging
     args = parser.parse_args()
     load_args(args.config, args)
-    logpath = os.path.join(args.cv_dir, args.name, f'lr{args.lr:.1e}|lrg{args.lrg:.1e}|wd{args.wd:.1e}|cosine{args.cosine_scale}|aug{"t" if args.augmented else "f"}|nlayers{args.nlayers}')
+    # logpath = os.path.join(args.cv_dir, args.name, f'lr{args.lr:.1e}|lrg{args.lrg:.1e}|wd{args.wd:.1e}|cosine{args.cosine_scale}|aug{"t" if args.augmented else "f"}|nlayers{args.nlayers}')
+    logpath = os.path.join(args.cv_dir, args.name, f'testing-no_attr_embed')
 
     os.makedirs(logpath, exist_ok=True)
     save_args(args, logpath, args.config)
@@ -61,9 +63,8 @@ def main():
     set_phos_version(args.phosc_version)
     set_phoc_version(args.phosc_version)
 
-
     # Define CLIP model
-    model_save_path = ospj('models', 'fine-tuned_clip', args.splitname, 'model.pth')
+    model_save_path = ospj('models', 'fine-tuned_clip', args.splitname, 'simple', 'model.pth')
     clip_model, clip_preprocess = clip.load("ViT-B/32", device=device)
 
     state_dict = torch.load(model_save_path, map_location=device)
@@ -73,8 +74,8 @@ def main():
     args.clip_preprocess = clip_preprocess
 
     # Get dataset
-    trainset = dset.CompositionDataset(
-        root=os.path.join(DATA_FOLDER,args.data_dir),
+    train_set = dset.CompositionDataset(
+        root=ospj(DATA_FOLDER, args.data_dir),
         phase='train',
         split=args.splitname,
         model=args.image_extractor,
@@ -88,16 +89,16 @@ def main():
         clip_model=clip_model
     )
 
-    trainloader = torch.utils.data.DataLoader(
-        trainset,
+    train_loader = torch.utils.data.DataLoader(
+        train_set,
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=args.workers
     )
 
-    testset = dset.CompositionDataset(
+    test_set = dset.CompositionDataset(
         root=os.path.join(DATA_FOLDER,args.data_dir),
-        phase=args.test_set,
+        phase='test',
         split=args.splitname,
         model =args.image_extractor,
         subset=args.subset,
@@ -108,21 +109,21 @@ def main():
         clip_model=clip_model
     )
 
-    testloader = torch.utils.data.DataLoader(
-        testset,
+    test_loader = torch.utils.data.DataLoader(
+        test_set,
         batch_size=args.test_batch_size,
         shuffle=False,
         num_workers=args.workers
     )
 
     # Get model and optimizer
-    image_extractor, model, optimizer = configure_model(args, trainset)
+    image_extractor, model, optimizer = configure_model(args, train_set)
 
     args.extractor = image_extractor
 
     train = train_normal
 
-    evaluator_val = Evaluator(testset, model)
+    evaluator_val = Evaluator(test_set, model)
 
     """
     # Function to process data from a loader and get embeddings
@@ -229,7 +230,8 @@ def main():
         print('Loaded model from ', args.load)
     
     for epoch in tqdm(range(start_epoch, args.max_epochs + 1), desc='Current epoch'):
-        train(epoch, image_extractor, model, trainloader, optimizer, writer)
+        train(epoch, image_extractor, model, train_loader, optimizer, writer)
+        # train(epoch, image_extractor, model, train_loader, optimizer, writer)
 
         if model.is_open and args.model == 'compcos' and ((epoch + 1) % args.update_feasibility_every) == 0:
             print('Updating feasibility scores')
@@ -237,24 +239,24 @@ def main():
 
         if epoch % args.eval_val_every == 0:
             with torch.no_grad(): # todo: might not be needed
-                test(epoch, image_extractor, model, testloader, evaluator_val, writer, args, logpath)
+                test(epoch, image_extractor, model, test_loader, evaluator_val, writer, args, logpath)
+                # test(epoch, image_extractor, model, test_loader, evaluator_val, writer, args, logpath)
                 
     print('Best AUC achieved is ', best_auc)
     print('Best HM achieved is ', best_hm)
 
 
-def train_normal(epoch, image_extractor, model, trainloader, optimizer, writer):
+def train_normal(epoch, image_extractor, model, train_loader, optimizer, writer):
     '''
     Runs training for an epoch
     '''
-
     if image_extractor:
         image_extractor.train()
 
     model.train() # Let's switch to training
 
     train_loss = 0.0 
-    for idx, data in tqdm(enumerate(trainloader), total=len(trainloader), desc = 'Training'):
+    for idx, data in tqdm(enumerate(train_loader), total=len(train_loader), desc = 'Training'):
         data = [d.to(device) for d in data]
 
         if image_extractor:
@@ -262,19 +264,20 @@ def train_normal(epoch, image_extractor, model, trainloader, optimizer, writer):
 
         loss, _ = model(data)
 
+
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
     
         train_loss += loss.item()
 
-    train_loss = train_loss/len(trainloader)
+    train_loss = train_loss/len(train_loader)
 
     writer.add_scalar('Loss/train_total', train_loss, epoch)
     print('Epoch: {}| Loss: {}'.format(epoch, round(train_loss, 2)))
 
 
-def test(epoch, image_extractor, model, testloader, evaluator, writer, args, logpath):
+def test(epoch, image_extractor, model, test_loader, evaluator, writer, args, logpath):
     '''
     Runs testing for an epoch
     '''
@@ -299,7 +302,7 @@ def test(epoch, image_extractor, model, testloader, evaluator, writer, args, log
 
     accuracies, all_sub_gt, all_attr_gt, all_obj_gt, all_pair_gt, all_pred = [], [], [], [], [], []
 
-    for idx, data in tqdm(enumerate(testloader), total=len(testloader), desc='Testing'):
+    for idx, data in tqdm(enumerate(test_loader), total=len(test_loader), desc='Testing'):
         data = [d.to(device) for d in data]
 
         if image_extractor:
@@ -324,11 +327,13 @@ def test(epoch, image_extractor, model, testloader, evaluator, writer, args, log
     if args.cpu_eval:
         for k in all_pred[0].keys():
             all_pred_dict[k] = torch.cat(
-                [all_pred[i][k].to('cpu') for i in range(len(all_pred))])
+                [all_pred[i][k].to('cpu') for i in range(len(all_pred))]
+            )
     else:
         for k in all_pred[0].keys():
             all_pred_dict[k] = torch.stack(
-                [all_pred[i][k] for i in range(len(all_pred))])
+                [all_pred[i][k] for i in range(len(all_pred))]
+            )
 
     # Calculate best unseen accuracy
     results = evaluator.score_model(all_pred_dict, all_obj_gt, bias=args.bias, topk=args.topk)

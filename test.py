@@ -3,7 +3,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 import torch.backends.cudnn as cudnn
 import numpy as np
-from flags import DATA_FOLDER
+from flags import DATA_FOLDER, device
 
 cudnn.benchmark = True
 
@@ -27,9 +27,6 @@ from timm import create_model
 
 # CLIP
 import clip
-
-
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def main():
     # Get arguments and start logging
@@ -55,7 +52,7 @@ def main():
     set_phoc_version(args.phosc_version)
 
     # CLIP model
-    model_save_path = ospj('models', 'fine-tuned_clip', args.splitname, 'model.pth')
+    model_save_path = ospj('models', 'fine-tuned_clip', args.splitname, 'simple', 'model.pth')
     clip_model, clip_preprocess = clip.load("ViT-B/32", device=device)
 
     state_dict = torch.load(model_save_path, map_location=device)
@@ -143,6 +140,7 @@ def main():
             image_extractor.eval()
         except:
             print('No Image extractor in checkpoint')
+
     model.load_state_dict(checkpoint['net'])
     model.eval()
 

@@ -7,15 +7,13 @@ from .common import MLP
 from utils.dbe import dbe
 from modules.utils import gen_shape_description
 
-from flags import DATA_FOLDER
+from flags import DATA_FOLDER, device
 
 from os.path import join as ospj
 
 import clip
 
 from itertools import product
-
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def compute_cosine_similarity(names, weights, return_dict=True):
     pairing_names = list(product(names, names))
@@ -112,7 +110,7 @@ class CompCos(nn.Module):
             a = int(a)
             layers.append(a)
 
-        self.image_embedder = MLP(dset.feat_dim, dset.feat_dim, relu=args.relu, num_layers=args.nlayers, dropout=self.args.dropout, norm=self.args.norm, layers=layers)
+        self.image_embedder = MLP(dset.feat_dim, int(dset.feat_dim), relu=args.relu, num_layers=args.nlayers, dropout=self.args.dropout, norm=self.args.norm, layers=layers)
 
         # Fixed
         self.composition = args.composition
@@ -120,7 +118,8 @@ class CompCos(nn.Module):
         input_dim = args.emb_dim
         self.attr_embedder = nn.Embedding(len(dset.attrs), input_dim)
 
-        self.obj_embedder = nn.Embedding(len(dset.objs) * 210, input_dim)    # FIX is this correct?
+        # self.obj_embedder = nn.Embedding(len(dset.objs) * 210, input_dim)    # FIX is this correct?
+        self.obj_embedder = nn.Embedding(len(dset.objs), input_dim)    # FIX is this correct?
 
         self.idx2attr_emb = self.gen_word_attrs_embeddings(dset.attrs)
         self.emb_attrs = [self.idx2attr_emb[val.item()] for val in self.train_attrs]

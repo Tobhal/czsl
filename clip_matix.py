@@ -14,7 +14,7 @@ from timm import create_model
 
 from tqdm import tqdm
 
-from flags import DATA_FOLDER
+from flags import DATA_FOLDER, device
 
 from utils.dbe import dbe
 from data import dataset_bengali as dset
@@ -28,8 +28,6 @@ import numpy as np
 import pandas as pd
 
 from utils.dbe import dbe
-
-device = "cuda" if torch.cuda.is_available() else "cpu"
 
 split = 'Fold0_use_50'
 use_augmented = False

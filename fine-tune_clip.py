@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 import numpy as np
 
-from transformers import CLIPTextConfig, CLIPVisionConfig, CLIPTextModelWithProjection, CLIPVisionModelWithProjection
+# from transformers import CLIPTextConfig, CLIPVisionConfig, CLIPTextModelWithProjection, CLIPVisionModelWithProjection
 
 import logging
 
@@ -17,23 +17,19 @@ from timm import create_model
 
 from tqdm import tqdm
 
-from flags import DATA_FOLDER
+from flags import DATA_FOLDER, device
 
 from utils.dbe import dbe
 from data import dataset_bengali as dset
 from data.dataset_bengali import ImageLoader
 
-from modules.utils import set_phos_version, set_phoc_version, gen_shape_description
+from modules.utils import set_phos_version, set_phoc_version, gen_shape_description, gen_shape_description_simple
 
 from modules import models, residualmodels
 
 from typing import Callable
 
 from enum import Enum
-
-
-# Load the CLIP model
-device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 # Initialize logging
@@ -46,7 +42,8 @@ def setup_logging(log_file_path):
 
 
 def gen_word_objs_embeddings(obj, model):
-    shape_description = gen_shape_description(obj)
+    # shape_description = gen_shape_description(obj)
+    shape_description = gen_shape_description_simple(obj)
     text = clip.tokenize(shape_description).to(device)
 
     with torch.no_grad():
@@ -296,7 +293,7 @@ def validate_one_epoch(epoch, val_loader, clip_model, clip_preprocess, loader, s
 def main(): 
     global clip_model, clip_preprocess, model_save_path
     # Datasett variables
-    split = 'Fold0_use_50'
+    split = 'Fold0_use'
     use_augmented = False
 
     # Loader variables
@@ -308,7 +305,7 @@ def main():
 
     root_model_path = ospj('models', 'fine-tuned_clip', split)
     log_file_path = ospj(root_model_path, 'training_log.log')
-    model_save_path = ospj(root_model_path, 'model.pth')
+    model_save_path = ospj(root_model_path, 'simple', 'model.pth')
 
     verify_model_save_path(model_save_path)
 

@@ -4,9 +4,7 @@ import torch.nn.functional as F
 import numpy as np
 from .word_embedding import load_word_embeddings
 from .common import MLP, Reshape
-from flags import DATA_FOLDER
-
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+from flags import DATA_FOLDER, device
 
 class ManifoldModel(nn.Module):
 

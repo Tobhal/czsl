@@ -7,6 +7,8 @@ from .gcn import GCN, GCNII
 from .word_embedding import load_word_embeddings
 import scipy.sparse as sp
 
+from flags import device
+
 
 def adj_to_edges(adj):
     # Adj sparse matrix to list of edges
@@ -22,8 +24,6 @@ def edges_to_adj(edges, n):
                         shape=(n, n), dtype='float32')
     return adj
 
-
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 class GraphFull(nn.Module):
     def __init__(self, dset, args):

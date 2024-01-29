@@ -6,8 +6,7 @@ import copy
 from scipy.stats import hmean
 
 from utils.dbe import dbe
-
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+from flags import device
 
 class MLP(nn.Module):
     '''
@@ -285,9 +284,14 @@ class Evaluator:
             Check later
             '''
             _, pair_pred = _scores.topk(topk, dim = 1) #sort returns indices of k largest values
+
             pair_pred = pair_pred.contiguous().view(-1)
+
             attr_pred, obj_pred = self.pairs[pair_pred][:, 0].view(-1, topk), \
                 self.pairs[pair_pred][:, 1].view(-1, topk)
+
+            # dbe(attr_pred, obj_pred, calls_before_exit=1000)
+
             return (attr_pred, obj_pred)
 
         results = {}
@@ -353,9 +357,11 @@ class Evaluator:
         scores = torch.stack(
             [scores[(attr,obj)] for attr, obj in self.dset.pairs], 1
         ) # (Batch, #pairs)
+
         orig_scores = scores.clone()
         results = self.generate_predictions(scores, obj_truth, bias, topk)
         results['scores'] = orig_scores
+
         return results
 
     def score_fast_model(self, scores, obj_truth, bias = 0.0, topk = 5):
@@ -363,7 +369,7 @@ class Evaluator:
         Wrapper function to call generate_predictions for manifold models
         '''
         results = {}
-        mask = self.seen_mask.repeat(scores.shape[0],1) # Repeat mask along pairs dimension
+        mask = self.seen_mask.repeat(scores.shape[0], 1) # Repeat mask along pairs dimension
         scores[~mask] += bias # Add bias to test pairs
 
         mask = self.closed_mask.repeat(scores.shape[0], 1)
@@ -403,7 +409,6 @@ class Evaluator:
             
             if p:
                 dbe(obj_truth, _scores[1].squeeze(), obj_match.squeeze())
-            # dbe(obj_match)
 
             # Match of object pair
             match = (attr_match * obj_match).any(1).float()
@@ -450,12 +455,12 @@ class Evaluator:
         #################### Closed world
         closed_scores = _process(predictions['closed'])
         unbiased_closed = _process(predictions['unbiased_closed'])
+
         _add_to_dict(closed_scores, 'closed', stats)
         _add_to_dict(unbiased_closed, 'closed_ub', stats)
 
         #################### Calculating AUC
         scores = predictions['scores']
-        # dbe(scores, pair_truth)
         # getting score for each ground truth class
 
         # ERROR: Here there is a mistake with getting the score values. The max value in 'pair_truth' is larger than what is posible... temp "fix" implemented
@@ -463,6 +468,7 @@ class Evaluator:
         max_index = scores.shape[1] - 1
         valid_pair_truth = pair_truth.clamp(max=max_index)
 
+        # correct_scores = scores[torch.arange(scores.shape[0]), pair_truth][unseen_ind]
         correct_scores = scores[torch.arange(scores.shape[0]), valid_pair_truth][unseen_ind]
 
         # Getting top predicted score for these unseen classes
@@ -475,14 +481,10 @@ class Evaluator:
         unseen_matches = stats['closed_unseen_match'].bool()
         correct_unseen_score_diff = unseen_score_diff[unseen_matches] - 1e-4
 
-        # dbe(correct_unseen_score_diff, calls_before_exit=20)
-
         # sorting these diffs
         correct_unseen_score_diff = torch.sort(correct_unseen_score_diff)[0]
         magic_binsize = 20
 
-        # dbe(correct_unseen_score_diff)
-        
         # getting step size for these bias values
         bias_skip = max(len(correct_unseen_score_diff) // magic_binsize, 1)
 
@@ -501,8 +503,6 @@ class Evaluator:
             [allpred[(attr,obj)] for attr, obj in self.dset.pairs], 1
         ) # (Batch, #pairs)
 
-        # dbe(biaslist)
-
         seen_accuracy, unseen_accuracy = [], []
         for bias in biaslist:
             scores = base_scores.clone()
@@ -514,8 +514,6 @@ class Evaluator:
             seen_match = float(results[3].mean())
             unseen_match = float(results[4].mean())
 
-            print(f'{unseen_accuracy=}')
-
             seen_accuracy.append(seen_match)
             unseen_accuracy.append(unseen_match)
 
@@ -523,12 +521,18 @@ class Evaluator:
         unseen_accuracy.append(unseen_match_max)
         seen_accuracy, unseen_accuracy = np.array(seen_accuracy), np.array(unseen_accuracy)
 
-        area = np.trapz(seen_accuracy, unseen_accuracy)
+        # area = np.trapz(seen_accuracy, unseen_accuracy)
+        x_values = np.arange(len(unseen_accuracy))
+        area = np.trapz(unseen_accuracy, x_values)
 
         for key in stats:
             stats[key] = float(stats[key].mean())
 
-        harmonic_mean = unseen_accuracy
+        try:
+            # harmonic_mean = hmean([seen_accuracy, unseen_accuracy], axis = 0)
+            harmonic_mean = np.mean(unseen_accuracy)
+        except ValueError as e:
+            dbe(e, seen_accuracy, unseen_accuracy)
 
         max_hm = np.max(harmonic_mean)
         idx = np.argmax(harmonic_mean)
@@ -541,9 +545,9 @@ class Evaluator:
         stats['biasterm'] = float(bias_term)
         stats['best_unseen'] = np.max(unseen_accuracy)
         stats['best_seen'] = np.max(seen_accuracy)
-        # stats['AUC'] = area
-        stats['AUC'] = np.average(unseen_accuracy)
+        stats['AUC'] = area
         stats['hm_unseen'] = unseen_accuracy[idx]
         stats['hm_seen'] = seen_accuracy[idx]
         stats['best_hm'] = max_hm
+
         return stats

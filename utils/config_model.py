@@ -10,8 +10,7 @@ from models.symnet import Symnet
 from models.compcos import CompCos
 
 from utils.dbe import dbe
-
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+from flags import device
 
 
 def configure_model(args, dataset):

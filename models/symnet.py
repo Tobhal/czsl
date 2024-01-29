@@ -5,8 +5,7 @@ import numpy as np
 from .word_embedding import load_word_embeddings
 from .common import MLP
 
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
+from flags import device
 
 
 class Symnet(nn.Module):
