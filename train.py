@@ -18,6 +18,8 @@ from data import dataset_bengali as dset
 from models.common import Evaluator
 from flags import parser, DATA_FOLDER, device
 
+from parser.phosc_net_argparse import phosc_net_argparse
+
 from utils.utils import save_args, load_args
 from utils.config_model import configure_model
 from utils.dbe import dbe
@@ -38,7 +40,9 @@ compose_switch = True
 
 def main():
     # Get arguments and start logging
-    args = parser.parse_args()
+    p = phosc_net_argparse(parser)
+
+    args = p.parse_args()
     load_args(args.config, args)
     # logpath = os.path.join(args.cv_dir, args.name, f'lr{args.lr:.1e}|lrg{args.lrg:.1e}|wd{args.wd:.1e}|cosine{args.cosine_scale}|aug{"t" if args.augmented else "f"}|nlayers{args.nlayers}')
     logpath = os.path.join(args.cv_dir, args.name, f'testing-no_attr_embed')

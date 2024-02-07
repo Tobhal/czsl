@@ -129,6 +129,7 @@ class CompositionDataset(Dataset):
         train_only = False,
         augmented = False,
         open_world = False,
+        add_original_data = False,
         phosc_model = None,
         clip_model = None
     ):
@@ -143,6 +144,7 @@ class CompositionDataset(Dataset):
         self.feat_dim = 512 if 'resnet18' in model else 2048 # todo, unify this  with models
         self.augmented = augmented
         self.open_world = open_world
+        self.add_original_data = add_original_data
         self.phosc_model = phosc_model
         self.clip_model = clip_model
 
@@ -487,8 +489,10 @@ class CompositionDataset(Dataset):
 
             comm_attr = self.sample_affordance(inv_attr, obj) # attribute for commutative regularizer
             
-            # data += [neg_attr, neg_obj, inv_attr, comm_attr, image, attr, obj]
             data += [neg_attr, neg_obj, inv_attr, comm_attr]
+
+        if self.add_original_data:
+            data += [image, attr, obj]
 
         # Return image paths if requested as the last element of the list
         if self.return_images and self.phase != 'train':

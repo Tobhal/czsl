@@ -66,6 +66,7 @@ testset = dset.CompositionDataset(
     train_only=True,
     open_world=True,
     augmented=use_augmented,
+    add_original_data=True,
     # phosc_model=phosc_model,
     # clip_model=clip_model
 )
@@ -78,16 +79,17 @@ test_loader = torch.utils.data.DataLoader(
 )
 
 # Load original and fine-tuned CLIP models
-original_clip_model, _ = clip.load("ViT-B/32", device=device)
+original_clip_model, original_clip_preprocess = clip.load("ViT-B/32", device=device)
 original_clip_model.float()
 
+"""
 # Load fine-tuned clip model
 fine_tuned_clip_model, fine_tuned_clip_preprocess = clip.load("ViT-B/32", device=device)
 fine_tuned_clip_model.float()
 
 state_dict = torch.load(model_save_path, map_location=device)
 fine_tuned_clip_model.load_state_dict(state_dict)
-
+"""
 # Preprocessing for CLIP
 clip_preprocess = Compose([
     Resize(224, interpolation=Image.BICUBIC),
@@ -109,6 +111,9 @@ def save_matrix_as_csv(matrix, model_save_path, csv_filename="matrix.csv"):
 
     # Create the full path for the CSV file
     csv_path = ospj(directory, csv_filename)
+
+    if torch.is_tensor(matrix):
+        matrix = matrix.cpu().numpy()
 
     # Convert the matrix to a DataFrame and save as CSV
     df = pd.DataFrame(matrix)
@@ -192,7 +197,7 @@ def evaluate_model(model, dataloader, device, preprocess=clip_preprocess):
 
 
 if __name__ == '__main__':
-    similarities, batch_features_all = evaluate_model(fine_tuned_clip_model, test_loader, device, fine_tuned_clip_preprocess)
+    similarities, batch_features_all = evaluate_model(original_clip_model, test_loader, device, original_clip_preprocess)
     matrix = calculate_cos_angle_matrix(batch_features_all)
 
     # Find the minimum and maximum values in the matrix

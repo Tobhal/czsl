@@ -31,6 +31,7 @@ from typing import Callable
 
 from enum import Enum
 
+from train_clip.utils.clip_utils import gen_word_objs_embeddings
 
 # Initialize logging
 def setup_logging(log_file_path):
@@ -39,17 +40,6 @@ def setup_logging(log_file_path):
                         datefmt='%Y-%m-%d %H:%M:%S')
     
     logging.info("Initialized logging")
-
-
-def gen_word_objs_embeddings(obj, model):
-    # shape_description = gen_shape_description(obj)
-    shape_description = gen_shape_description_simple(obj)
-    text = clip.tokenize(shape_description).to(device)
-
-    with torch.no_grad():
-        text_features = model.encode_text(text)
-
-    return text_features
 
 
 # Function to check if the model save path's directory exists
@@ -165,7 +155,7 @@ def adaptive_grad_clip(parameters, clip_factor, eps):
             p.grad.data.clamp_(-max_norm, max_norm)
 
 
-def train_one_epoch(epoch, train_loader, clip_model, clip_preprocess, loader, optimizer, scheduler=None):
+def train_one_epoch(epoch, train_loader, clip_model, clip_preprocess, img_loader, optimizer, scheduler=None):
     global device
 
     clip_model.train()
@@ -187,7 +177,7 @@ def train_one_epoch(epoch, train_loader, clip_model, clip_preprocess, loader, op
             anchor_word = descriptions[i]
 
             # Load and preprocess the anchor image
-            anchor_img = loader(anchor_img_name)
+            anchor_img = img_loader(anchor_img_name)
             anchor_img = clip_preprocess(anchor_img).unsqueeze(0).to(device)
 
             anchor_image_features = clip_model.encode_image(anchor_img)

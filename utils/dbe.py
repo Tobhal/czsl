@@ -113,6 +113,8 @@ def dbe(
     # Parse out actual variable names
     var_names = code_string[code_string.find("(")+1:-1].split(",")
 
+    print()
+
     for var_name, arg in zip(var_names, args):
         var_name_strip = var_name.strip()
         if isinstance(arg, list):
