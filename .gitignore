@@ -149,3 +149,4 @@ DATA_ROOT/
 pretrained_model/
 
 models/fine-tuned_clip/
+models/trained_clip/
