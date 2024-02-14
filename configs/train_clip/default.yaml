@@ -18,7 +18,7 @@ training:
   batch_size: 32       # For testing
   test_batch_size: 32  # For testing
   load:
-  lr: 5.0e-05       # Default: 5.0e-05
+  lr: 5.0e-03       # Default: 5.0e-05
   lrg: 1.0e-03      # Default: 1.0e-03
   wd: 5.0e-05       # Default 5.0e-05
   margin: 0.4

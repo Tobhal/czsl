@@ -27,6 +27,8 @@ def train_clip_argparse(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
     # Data
     train_clip_parser.add_argument('--batch_size', type=int, default=32)
 
+    # Training
+    train_clip_parser.add_argument('--num_epochs', type=int, default=100)
 
     return parser
 

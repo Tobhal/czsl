@@ -25,6 +25,7 @@ from clip.clip import tokenize
 from modules.utils import set_phos_version, set_phoc_version
 from modules import models, residualmodels
 from timm import create_model
+from modules.utils import gen_shape_description_simple, gen_shape_description
 
 from data import dataset_bengali as dset
 from parser import train_clip_argparse, phosc_net_argparse, dataset_argparse, early_stopper_argparse
@@ -144,7 +145,7 @@ def train_one_epoch(epoch: int, train_loader, clip_model, image_loader, optimize
         *_, image_names, _, descriptions = batch
 
         images = [image_loader(image) for image in tqdm(image_names, position=1, desc='Processing Images', leave=False)]
-        descriptions = [description for description in descriptions]
+        descriptions = [gen_shape_description(description)[0] for description in descriptions]
 
         temp_loss, temp_acc = train_step_batch(images, descriptions, 0, clip_model, optimizer, lr_scheduler, len(batch))
 
@@ -256,9 +257,11 @@ def main():
     load_args(args.data_config, args)
     load_args(args.early_stopper_config, args)
 
+    args.save_every = 100
+
     # Set up clip model   
     with open(args.config_dir) as conf:
-        config = yaml.safe_load(conf)[args.model_name]
+        config = yaml.safe_load(conf)[args.clip_model_name]
 
     clip_model = CLIP(
         **config
@@ -274,7 +277,7 @@ def main():
         dropout=args.dropout
     ).to(device)
 
-    args.phosc_model = phosc_model
+    # args.phosc_model = phosc_model
 
     # Sett phos and phoc language
     set_phos_version(args.phosc_version)
@@ -358,7 +361,7 @@ def main():
 
     lr_scheduler = CosineAnnealingWarmupRestarts(
         optimizer,
-        first_cycle_steps=num_training_steps(train_loader, args.max_epochs, args.batch_size),
+        first_cycle_steps=num_training_steps(train_loader, args.num_epochs, args.batch_size),
         cycle_mult=args.cycle_mult,
         max_lr=args.lr,
         min_lr=0,
@@ -368,12 +371,15 @@ def main():
     image_loader = ImageLoader(ospj(DATA_FOLDER, args.data_dir, args.split_name))
 
     early_stopping = EarlyStopping(
-        save_path=ospj('models', 'trained_clip'),
-        patience=args.patience,
-        verbose=args.verbose
+        save_path=ospj('models', 'trained_clip', args.split_name, args.name),
+        # patience=args.patience,
+        patience=None,
+        verbose=args.verbose,
+        save_every=args.save_every,
+        model_arguments=args
     )
 
-    for epoch in range(args.max_epochs):
+    for epoch in range(args.num_epochs):
         train_loss, train_acc = train_one_epoch(
             epoch,
             train_loader, 

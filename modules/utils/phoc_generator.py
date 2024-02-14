@@ -129,7 +129,7 @@ if __name__ == '__main__':
     set_phoc_version('ben')
     # print(generate_chars('1aøæÅ'.lower()))
 
-    phoc_vector = generate_phoc_vector('অ')
+    phoc_vector = generate_phoc_vector('চুরপুনি')
     
     print(phoc_vector)
     print(len(phoc_vector))

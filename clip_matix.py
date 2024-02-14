@@ -1,6 +1,7 @@
 import torch
 from torch.utils.data import DataLoader
 from torchvision.transforms import Compose, Resize, CenterCrop, ToTensor, Normalize
+import torch.nn.functional as F
 
 import logging
 
@@ -27,13 +28,12 @@ from modules import models, residualmodels
 import numpy as np
 import pandas as pd
 
-from utils.dbe import dbe
-
 split = 'Fold0_use_50'
 use_augmented = False
 
-save_path = ospj('models', 'fine-tuned_clip', split)
-model_save_path = ospj(save_path, 'model.pth')
+# save_path = ospj('models', 'fine-tuned_clip', split)
+save_path = ospj('models', 'trained_clip', split)
+model_save_path = ospj(save_path, 'best.pt')
 matrix_save_path = ospj(save_path, 'matrix.csv')
 root_dir = ospj(DATA_FOLDER, "BengaliWords", "BengaliWords_CroppedVersion_Folds")
 image_loader_path = ospj(root_dir, split)
@@ -50,7 +50,7 @@ phosc_model = create_model(
 
 # Sett phos and phoc language
 set_phos_version('ben')
-set_phoc_version('ben')  
+set_phoc_version('ben')
 
 # Assuming you have the necessary imports and initializations done (like dset, phosc_model, etc.)
 testset = dset.CompositionDataset(
@@ -82,14 +82,13 @@ test_loader = torch.utils.data.DataLoader(
 original_clip_model, original_clip_preprocess = clip.load("ViT-B/32", device=device)
 original_clip_model.float()
 
-"""
 # Load fine-tuned clip model
 fine_tuned_clip_model, fine_tuned_clip_preprocess = clip.load("ViT-B/32", device=device)
 fine_tuned_clip_model.float()
 
 state_dict = torch.load(model_save_path, map_location=device)
 fine_tuned_clip_model.load_state_dict(state_dict)
-"""
+
 # Preprocessing for CLIP
 clip_preprocess = Compose([
     Resize(224, interpolation=Image.BICUBIC),
@@ -122,14 +121,52 @@ def save_matrix_as_csv(matrix, model_save_path, csv_filename="matrix.csv"):
     print(f"Matrix saved as CSV at: {csv_path}")
 
 
+def process_text_chunks(text_chunks, model, device):
+    """Process each text chunk with the model."""
+    batch_features = []
+    for chunk in text_chunks:
+        # Ensure the text chunk is within the context length limit
+        tokens = clip.tokenize([chunk]).to(device)
+
+        batch_features.append(tokens)
+
+    return batch_features
+
+
 def gen_word_objs_embeddings(obj, clip_model):
     shape_description = gen_shape_description(obj)
+
+    shape_description = split_string_into_chunks(shape_description, 75)
+
     text = clip.tokenize(shape_description).to(device)
 
     with torch.no_grad():
         text_features = clip_model.encode_text(text)
 
+    # Check if the tensor's shape is less than [94, 512]
+    if text_features.shape[0] < 94:
+        # Calculate the number of rows to pad
+        pad_rows = 94 - text_features.shape[0]
+
+        # Pad the tensor
+        text_features = F.pad(text_features, (0, 0, pad_rows, 0))
+        
     return text_features
+
+
+def split_string_into_chunks(input_string, chunk_size: int):
+    """
+    Split the input string into chunks of 'chunk_size' characters.
+
+    Args:
+    - input_string (str): The string to be split.
+    - chunk_size (int): The maximum number of characters in each chunk.
+
+    Returns:
+    - list of str: A list containing the split substrings.
+    """
+    # Use a list comprehension to split the string into chunks of 'chunk_size' characters
+    return [input_string[i:i+chunk_size] for i in range(0, len(input_string), chunk_size)]
 
 
 def calculate_cos_angle_matrix(vectors):
@@ -143,7 +180,10 @@ def calculate_cos_angle_matrix(vectors):
             vec_j = torch.tensor(vectors[j]).flatten()
 
             # Calculate the dot product of the two vectors
-            dot_product = torch.matmul(vec_i, vec_j)
+            try:
+                dot_product = torch.matmul(vec_i, vec_j)
+            except RuntimeError as e:
+                dbe(vec_i.shape, vec_j.shape, e)
 
             # Calculate the magnitudes of the vectors
             magnitude_i = torch.norm(vec_i)
@@ -153,7 +193,7 @@ def calculate_cos_angle_matrix(vectors):
             cos_theta = dot_product / (magnitude_i * magnitude_j)
 
             # Ensure the cosine value is within the valid range [-1, 1]
-            cos_theta = torch.clamp(cos_theta, -1, 1)
+            # cos_theta = torch.clamp(cos_theta, -1, 1)
 
             # Assign the cosine value to the matrix
             cos_angle_matrix[i, j] = cos_theta
@@ -166,14 +206,17 @@ def evaluate_model(model, dataloader, device, preprocess=clip_preprocess):
     similarities = []
     batch_features_all = []
 
+    description_shapes = []
+
     with torch.no_grad():
         for batch in tqdm(dataloader, position=0, desc="Batch Progress"):
             # Unpacking the batch data
             _, _, _, _, _, _, _, _, image_names, _, descriptions = batch
 
             # Precompute embeddings for all descriptions in the batch
-            cash_descriptions = [gen_word_objs_embeddings(description, model) for description in tqdm(descriptions, position=1, desc="Descriptions Progress", leave=False)]
-
+            cash_descriptions = [gen_word_objs_embeddings(description, model) for description in
+                                 tqdm(descriptions, position=1, desc="Descriptions Progress", leave=False)]
+            
             for i in tqdm(range(len(image_names)), position=1, desc="Image Names Progress", leave=False):
                 anchor_img_name = image_names[i]
                 anchor_desc = descriptions[i]
@@ -190,15 +233,41 @@ def evaluate_model(model, dataloader, device, preprocess=clip_preprocess):
                 batch_features_all.append(anchor_image_features)
 
                 # Calculate cosine similarity between image and text features of the anchor
-                similarity = torch.nn.functional.cosine_similarity(anchor_image_features, anchor_text_features).mean().item()
+                similarity = torch.nn.functional.cosine_similarity(anchor_image_features,
+                                                                   anchor_text_features).mean().item()
                 similarities.append(similarity)
+
+    dbe(description_shapes)
 
     return similarities, batch_features_all
 
 
+def evaluate_text_embedings(model, dataloader, device, preprocess=clip_preprocess):
+    model.eval()
+    similarities = []
+    batch_features_all = []
+
+    with torch.no_grad():
+        for batch in tqdm(dataloader, position=0, desc="Batch Progress"):
+            # Unpacking the batch data
+            *_, image_names, _, descriptions = batch
+
+            # Precompute embeddings for all descriptions in the batch
+            batch_features_all.append([gen_word_objs_embeddings(description, model) for description in tqdm(descriptions, position=1, desc="Descriptions Progress", leave=False)])
+
+    return batch_features_all
+
+
 if __name__ == '__main__':
-    similarities, batch_features_all = evaluate_model(original_clip_model, test_loader, device, original_clip_preprocess)
-    matrix = calculate_cos_angle_matrix(batch_features_all)
+    # similarities, batch_features_all = evaluate_model(original_clip_model, test_loader, device, original_clip_preprocess)
+    # similarities, batch_features_all = evaluate_model(fine_tuned_clip_model, test_loader, device, fine_tuned_clip_preprocess)
+
+    batch_features_all = evaluate_text_embedings(fine_tuned_clip_model, test_loader, device, fine_tuned_clip_preprocess)
+
+    # Flatten the nested list to a flat list of tensors
+    flat_list_of_tensors = [item for sublist in batch_features_all for item in sublist]
+
+    matrix = calculate_cos_angle_matrix(flat_list_of_tensors)
 
     # Find the minimum and maximum values in the matrix
     min_value = torch.min(matrix).item()

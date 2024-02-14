@@ -22,6 +22,8 @@ def dataset_argparse(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
     dataset_parser.add_argument('--open_world', action='store_true', default=False, help='perform open world experiment')
     dataset_parser.add_argument('--test_batch_size', type=int, default=32, help="Batch size at test/eval time")
     dataset_parser.add_argument('--cpu_eval', action='store_true', help='Perform test on cpu')
-
+    dataset_parser.add_argument('--update_features', action='store_true', help='Update features')
+    dataset_parser.add_argument('--train_only', action='store_true', help='Train only')
+    dataset_parser.add_argument('--augmented', action='store_true', help='Augment data')
 
     return parser

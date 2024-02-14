@@ -98,7 +98,7 @@ def gen_phos_label(word_list) -> dict:
 
 
 # Input: A word(string)
-# Output: Each level of PHOC vector
+# Output: Each level of PHOS vector
 ## Levels 1,2,3,4,5
 def generate_label_for_description(word: str) -> List[np.ndarray]:
     # TODO: Write what part of the word is considred. So for any layer other than 0 the word will be split into multiple parts
@@ -150,6 +150,20 @@ def gen_shape_description_simple(word: str) -> List[str]:
 
     return shape
 
+def flatten_vector(vector):
+    """Flatten the given vector structure into a single list of integers."""
+    flattened_list = []
+
+    # Function to recursively extract arrays and flatten them
+    def extract_and_flatten(item):
+        if isinstance(item, list):
+            for subitem in item:
+                extract_and_flatten(subitem)
+        elif isinstance(item, np.ndarray):
+            flattened_list.extend(item.tolist())
+
+    extract_and_flatten(vector)
+    return list(map(int, flattened_list))
 
 def gen_shape_description(word: str) -> List[str]:
     single_phos = word_vector(word)
@@ -170,9 +184,7 @@ def gen_shape_description(word: str) -> List[str]:
         'right top hood'
     ]
 
-    return gen_shape_description_simple(word)
-
-    shape_description = []
+    shape_description = ''
 
     phos = generate_label_for_description(word)
 
@@ -180,15 +192,16 @@ def gen_shape_description(word: str) -> List[str]:
         pyramid_level_ordinal_idx = num2words(pyramid_level_idx + 1, to='ordinal')
 
         for split, phos in enumerate(pyramid_level_data):
-            shape_description.append(f'In the {pyramid_level_ordinal_idx} level (split {split})')
+            # shape_description += f'In the {pyramid_level_ordinal_idx} level (split {num2words(split)})'
+            shape_description += f'In the {pyramid_level_ordinal_idx} level'
 
             for idx, shape in enumerate(phos[0]):
-                text = f', shape {idx + 1} is present {int(shape)} times'
+                shape_description += f', shape {num2words(idx + 1)} is present {num2words(int(shape))} times'
 
                 if idx == len(phos[0]) - 1:
-                    text += '.\n'
+                    shape_description += '.\n'
 
-                shape_description.append(text)
+                # shape_description.append(text)
 
     return shape_description
 

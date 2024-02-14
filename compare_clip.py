@@ -31,7 +31,8 @@ from utils.dbe import dbe
 split = 'Fold0_use_50'
 use_augmented = False
 
-model_save_path = ospj('models', 'fine-tuned_clip', split, 'model.pth')
+pretrained_model_save_path = ospj('models', 'fine-tuned_clip', 'Fold0_use_50_n', 'model.pth')
+trained_model_save_path = ospj('models', 'trained_clip', 'best.pt')
 root_dir = ospj(DATA_FOLDER, "BengaliWords", "BengaliWords_CroppedVersion_Folds")
 image_loader_path = ospj(root_dir, split)
 
@@ -47,7 +48,7 @@ phosc_model = create_model(
 
 # Sett phos and phoc language
 set_phos_version('ben')
-set_phoc_version('ben')  
+set_phoc_version('ben')
 
 # Assuming you have the necessary imports and initializations done (like dset, phosc_model, etc.)
 testset = dset.CompositionDataset(
@@ -63,6 +64,7 @@ testset = dset.CompositionDataset(
     train_only=True,
     open_world=True,
     augmented=use_augmented,
+    add_original_data=True,
     # phosc_model=phosc_model,
     # clip_model=clip_model
 )
@@ -82,8 +84,15 @@ original_clip_model.float()
 fine_tuned_clip_model, fine_tuned_clip_preprocess = clip.load("ViT-B/32", device=device)
 fine_tuned_clip_model.float()
 
-state_dict = torch.load(model_save_path, map_location=device)
-fine_tuned_clip_model.load_state_dict(state_dict)
+fine_tuned_state_dict = torch.load(pretrained_model_save_path, map_location=device)
+fine_tuned_clip_model.load_state_dict(fine_tuned_state_dict)
+
+# Load trained clip model
+trained_clip_model, tranined_clip_preprocess = clip.load("ViT-B/32", device=device)
+trained_clip_model.float()
+
+trained_state_dict = torch.load(trained_model_save_path, map_location=device)
+trained_clip_model.load_state_dict(trained_state_dict)
 
 # Preprocessing for CLIP
 clip_preprocess = Compose([
@@ -95,6 +104,7 @@ clip_preprocess = Compose([
 
 loader = ImageLoader(image_loader_path)
 
+
 def gen_word_objs_embeddings(obj, clip_model):
     shape_description = gen_shape_description(obj)
     text = clip.tokenize(shape_description).to(device)
@@ -103,6 +113,7 @@ def gen_word_objs_embeddings(obj, clip_model):
         text_features = clip_model.encode_text(text)
 
     return text_features
+
 
 def calculate_cos_angle_matrix(vector_1, vector_2):
     # Ensure the vectors are PyTorch tensors and flatten them if they are 2D
@@ -133,6 +144,7 @@ def calculate_cos_angle_matrix(vector_1, vector_2):
 
     return cos_angle_matrix
 
+
 def evaluate_model(model, dataloader, device, preprocess=clip_preprocess):
     model.eval()
     batch_similarities_same_class = []
@@ -143,7 +155,8 @@ def evaluate_model(model, dataloader, device, preprocess=clip_preprocess):
             # Unpacking the batch data
             _, _, _, _, _, _, _, _, image_names, _, descriptions = batch
 
-            cash_descriptions = [gen_word_objs_embeddings(description, model) for description in tqdm(descriptions, position=1, desc="Descriptions Progress", leave=False)]
+            cash_descriptions = [gen_word_objs_embeddings(description, model) for description in
+                                 tqdm(descriptions, position=1, desc="Descriptions Progress", leave=False)]
 
             same_class_similarity = []
             different_class_similarity = []
@@ -172,7 +185,8 @@ def evaluate_model(model, dataloader, device, preprocess=clip_preprocess):
                         # Calculate cosine similarity
                         # similarity = torch.nn.functional.cosine_similarity(anchor_text_features, negative_text_features).mean().item()
 
-                        similarity = torch.nn.functional.cosine_similarity(anchor_image_features, negative_image_features).mean().item()
+                        similarity = torch.nn.functional.cosine_similarity(anchor_image_features,
+                                                                           negative_image_features).mean().item()
 
                         # Check if descriptions are of the same class
                         if anchor_desc == negative_desc:
@@ -183,7 +197,7 @@ def evaluate_model(model, dataloader, device, preprocess=clip_preprocess):
             # Average similarity for the batch for same and different classes
             if same_class_similarity:
                 batch_similarities_same_class.append(np.mean(same_class_similarity))
-                
+
             if different_class_similarity:
                 batch_similarities_different_class.append(np.mean(different_class_similarity))
 
@@ -209,12 +223,16 @@ def summarize_results(original_same_class, original_different_class, fine_tuned_
 
     print(f"Average similarity for different-class pairs (original model): {avg_similarity_original_different:.4f}")
     print(f"Average similarity for different-class pairs (fine-tuned model): {avg_similarity_fine_tuned_different:.4f}")
-    print(f"The {better_model_different_class} model performs better for different-class pairs based on average similarity.")
+    print(
+        f"The {better_model_different_class} model performs better for different-class pairs based on average similarity.")
 
 
 # Evaluate both models
-fine_tuned_distances_same, fine_tuned_distances_same_diffrent = evaluate_model(fine_tuned_clip_model, test_loader, device, fine_tuned_clip_preprocess)
-original_distances_same, original_distances_diffrent = evaluate_model(original_clip_model, test_loader, device, fine_tuned_clip_preprocess)
+fine_tuned_distances_same, fine_tuned_distances_same_diffrent = evaluate_model(trained_clip_model, test_loader, device,
+                                                                               tranined_clip_preprocess)
+original_distances_same, original_distances_diffrent = evaluate_model(original_clip_model, test_loader, device,
+                                                                      tranined_clip_preprocess)
 
 # Compare and summarize results
-summarize_results(original_distances_same, original_distances_diffrent, fine_tuned_distances_same, fine_tuned_distances_same_diffrent)
+summarize_results(original_distances_same, original_distances_diffrent, fine_tuned_distances_same,
+                  fine_tuned_distances_same_diffrent)

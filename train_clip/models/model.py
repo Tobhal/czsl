@@ -94,6 +94,31 @@ class AttentionPool2d(nn.Module):
         return x[0]
 
 
+class ModifiedResNetWithCounts(nn.Module):
+    def __init__(self, layers, output_dim, heads, input_resolution=224, width=64, feature_count_dim=13):
+        super().__init__()
+        # Initialize the original ModifiedResNet layers
+        self.modified_resnet = ModifiedResNet(layers, output_dim, heads, input_resolution, width)
+        
+        # Additional layers for predicting feature counts
+        self.feature_count_fc1 = nn.Linear(output_dim, 512)  # Example dimension
+        self.feature_count_fc2 = nn.Linear(512, 256)  # Example dimension
+        self.feature_count_output = nn.Linear(256, feature_count_dim)  # Output layer for feature counts
+        
+        self.relu = nn.ReLU()  # ReLU activation function
+
+    def forward(self, x):
+        # Pass input through the original ModifiedResNet
+        x = self.modified_resnet(x)
+        
+        # Pass through additional layers for feature count prediction
+        x = self.relu(self.feature_count_fc1(x))
+        x = self.relu(self.feature_count_fc2(x))
+        feature_counts = self.relu(self.feature_count_output(x))  # Ensure non-negative output
+        
+        return feature_counts
+
+
 class ModifiedResNet(nn.Module):
     """
     A ResNet class that is similar to torchvision's but contains the following changes:
@@ -261,7 +286,7 @@ class CLIP(nn.Module):
 
         if isinstance(vision_layers, (tuple, list)):
             vision_heads = vision_width * 32 // 64
-            self.visual = ModifiedResNet(
+            self.visual = ModifiedResNetWithCounts(
                 layers=vision_layers,
                 output_dim=embed_dim,
                 heads=vision_heads,

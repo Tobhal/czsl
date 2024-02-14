@@ -1,4 +1,4 @@
 early_stopper:
   patience: 7
   verbose: True
-  save_epoch: 5
+  save_every: 5
