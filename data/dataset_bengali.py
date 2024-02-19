@@ -248,7 +248,10 @@ class CompositionDataset(Dataset):
         # NOTE: Commented out because image features are generated at a diffrent stage
         # FIX: rewrite this to preencode the images using phosc net. where the key is the image and the value is the phosc encoding
         if not self.update_features:
-            feat_file = ospj(root, self.split, f'{model}_{self.phase}_featurers.t7')
+            if self.augmented:
+                feat_file = ospj(root, self.split, f'{model}_{self.phase}-aug_featurers.t7')
+            else:
+                feat_file = ospj(root, self.split, f'{model}_{self.phase}_featurers.t7')
 
             print(f'Using {model} and feature file {feat_file}')
 

@@ -32,7 +32,7 @@ split = 'Fold0_use_50'
 use_augmented = False
 
 pretrained_model_save_path = ospj('models', 'fine-tuned_clip', 'Fold0_use_50_n', 'model.pth')
-trained_model_save_path = ospj('models', 'trained_clip', 'best.pt')
+trained_model_save_path = ospj('models', 'trained_clip', 'Fold0_use_50', 'super_aug', '2', 'best.pt')
 root_dir = ospj(DATA_FOLDER, "BengaliWords", "BengaliWords_CroppedVersion_Folds")
 image_loader_path = ospj(root_dir, split)
 

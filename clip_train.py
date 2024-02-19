@@ -26,6 +26,9 @@ from modules.utils import set_phos_version, set_phoc_version
 from modules import models, residualmodels
 from timm import create_model
 from modules.utils import gen_shape_description_simple, gen_shape_description
+from modules.utils.utils import split_string_into_chunks
+
+import clip
 
 from data import dataset_bengali as dset
 from parser import train_clip_argparse, phosc_net_argparse, dataset_argparse, early_stopper_argparse
@@ -51,7 +54,28 @@ def num_training_steps(train_dataloader, max_epochs, batch_size, accumulate_grad
     return total_steps
 
 
-def train_step_batch(image, text, n: int, clip_model, optimizer, lr_scheduler, batch_size: int) -> Tuple[float, float]:
+def gen_word_objs_embeddings(obj, clip_model):
+    shape_description = gen_shape_description(obj)
+
+    shape_description = split_string_into_chunks(shape_description, 75)
+
+    text = clip.tokenize(shape_description).to(device)
+
+    with torch.no_grad():
+        text_features = clip_model.encode_text(text)
+
+    # Check if the tensor's shape is less than [94, 512]
+    if text_features.shape[0] < 94:
+        # Calculate the number of rows to pad
+        pad_rows = 94 - text_features.shape[0]
+
+        # Pad the tensor
+        text_features = F.pad(text_features, (0, 0, pad_rows, 0))
+        
+    return text_features
+
+
+def train_step_batch(image, text_feat, n: int, clip_model, optimizer, lr_scheduler, batch_size: int) -> Tuple[float, float]:
     loss = 0
     acc = 0
 
@@ -64,22 +88,18 @@ def train_step_batch(image, text, n: int, clip_model, optimizer, lr_scheduler, b
 
     image = torch.stack([transform(img) for img in image])
 
-    # Tokenize each text sample
-    text_tokenized = [tokenize(txt).squeeze(0) for txt in text]
-
-    # Stack the tokenized text to get a tensor of shape [batch_size, sequence_length]
-    text_tensor = torch.stack(text_tokenized)
-
     n = n if n > 0 else 1
     image_emb = torch.chunk(image, n)
-    text_emb = torch.chunk(text_tensor, n)  # Use text_tensor here
 
     with torch.no_grad():
         ims = [F.normalize(clip_model.encode_image(img), dim=1) for img in image_emb]
-        txt = [F.normalize(clip_model.encode_text(t), dim=1) for t in text_emb]
+        txt = [F.normalize(t) for t in text_feat]
 
         ims = torch.cat(ims)
-        txt = torch.cat(txt)
+        txt = torch.stack(txt)
+
+        # Reduce the text tensor to a single tensor
+        txt = txt.mean(dim=1)
 
         if len(ims.shape) == 3:
             ims = list(ims)
@@ -116,7 +136,7 @@ def train_step_batch(image, text, n: int, clip_model, optimizer, lr_scheduler, b
         loss.backward()
 
     # Text loss
-    for j, mb in enumerate(text_emb):
+    for j, mb in enumerate(text_feat):
         actual_batch_size = mb.size(0)  # Get the actual size of the current mini-batch
         txt_tmp = copy.deepcopy(txt)
         # No need to re-tokenize; mb is already a tensor of token indices
@@ -145,9 +165,9 @@ def train_one_epoch(epoch: int, train_loader, clip_model, image_loader, optimize
         *_, image_names, _, descriptions = batch
 
         images = [image_loader(image) for image in tqdm(image_names, position=1, desc='Processing Images', leave=False)]
-        descriptions = [gen_shape_description(description)[0] for description in descriptions]
+        emb_descriptions = [gen_word_objs_embeddings(description, clip_model) for description in tqdm(descriptions, position=1, desc='Generating Embeddings', leave=False)]
 
-        temp_loss, temp_acc = train_step_batch(images, descriptions, 0, clip_model, optimizer, lr_scheduler, len(batch))
+        temp_loss, temp_acc = train_step_batch(images, emb_descriptions, 0, clip_model, optimizer, lr_scheduler, len(batch))
 
         running_loss += temp_loss.item()
         running_acc += temp_acc.item()
@@ -257,8 +277,6 @@ def main():
     load_args(args.data_config, args)
     load_args(args.early_stopper_config, args)
 
-    args.save_every = 100
-
     # Set up clip model   
     with open(args.config_dir) as conf:
         config = yaml.safe_load(conf)[args.clip_model_name]
@@ -274,7 +292,7 @@ def main():
         phoc_size=args.phoc_size,
         phos_layers=args.phos_layers,
         phoc_layers=args.phoc_layers,
-        dropout=args.dropout
+        dropout=args.phosc_dropout
     ).to(device)
 
     # args.phosc_model = phosc_model
@@ -317,7 +335,7 @@ def main():
         train_only=args.train_only,
         open_world=args.open_world,
         add_original_data=True,
-        augmented=args.augmented,
+        augmented=False,
         phosc_model=phosc_model,
     )
 
@@ -337,7 +355,7 @@ def main():
         update_features = args.update_features,
         open_world=args.open_world,
         add_original_data=True,
-        augmented=args.augmented,
+        augmented=False,
         phosc_model=phosc_model,
     )
 

@@ -100,14 +100,14 @@ def gen_phos_label(word_list) -> dict:
 # Input: A word(string)
 # Output: Each level of PHOS vector
 ## Levels 1,2,3,4,5
-def generate_label_for_description(word: str) -> List[np.ndarray]:
+def generate_label_for_description(word: str, level=6) -> List[np.ndarray]:
     # TODO: Write what part of the word is considred. So for any layer other than 0 the word will be split into multiple parts
     vector = word_vector(word)
     L = len(word)
 
     return_vector = [[vector]]
 
-    for split in range(2, 6):
+    for split in range(2, level):
         parts = L // split
         vec = list()
         temp_vector = np.array([])  # Initialize a temporary vector for each split
@@ -186,6 +186,22 @@ def gen_shape_description(word: str) -> List[str]:
 
     shape_description = ''
 
+    """
+    test = generate_label_for_description(word, 3)
+
+    all_arrays = np.concatenate([array for sublist in test for inner_list in sublist for array in inner_list])
+    flattened_array = all_arrays.flatten()
+
+    # Convert to string
+    concatenated_string_flattened = ''.join(str(int(value)) for value in flattened_array)
+    return concatenated_string_flattened
+    dbe(concatenated_string_flattened, len(concatenated_string_flattened))
+
+    # Concatenate into a single string with each float value converted to an int
+    concatenated_string = ''.join(str(int(value)) for array in single_phos for value in array)
+    dbe(concatenated_string)
+    """
+
     phos = generate_label_for_description(word)
 
     for pyramid_level_idx, pyramid_level_data in enumerate(phos):
@@ -201,10 +217,21 @@ def gen_shape_description(word: str) -> List[str]:
                 if idx == len(phos[0]) - 1:
                     shape_description += '.\n'
 
-                # shape_description.append(text)
+    return shape_description
+"""
+    for pyramid_level_idx, pyramid_level_data in enumerate(phos):
+        pyramid_level_ordinal_idx = num2words(pyramid_level_idx + 1, to='ordinal')
+
+        shape_description += f'In the {pyramid_level_ordinal_idx} level'
+
+        for split, _phos in enumerate(pyramid_level_data):
+            for idx, shape in enumerate(_phos[0]):
+                shape_description += f', shape {num2words(idx + 1)} is present {num2words(int(shape))} times'
+
+        shape_description += '.\n'
 
     return shape_description
-
+"""
 
 def gen_shape_description_from_phos(phos) -> List[str]:
     shape_description = []

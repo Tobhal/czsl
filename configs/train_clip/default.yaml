@@ -18,7 +18,7 @@ training:
   batch_size: 32       # For testing
   test_batch_size: 32  # For testing
   load:
-  lr: 5.0e-03       # Default: 5.0e-05
+  lr: 5.0e-05       # Default: 5.0e-05
   lrg: 1.0e-03      # Default: 1.0e-03
   wd: 5.0e-05       # Default 5.0e-05
   margin: 0.4
@@ -38,4 +38,8 @@ training:
 optimizer:
   epsilon: 1.e-8
   weight_decay: 0.2
-  learning_rate: 5.e-4 
+  learning_rate: 5.e-4
+
+scheduer:
+  cycle_mult: 1.0
+  warmup_steps: 10

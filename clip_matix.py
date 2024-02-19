@@ -22,6 +22,7 @@ from data import dataset_bengali as dset
 from data.dataset_bengali import ImageLoader
 
 from modules.utils import set_phos_version, set_phoc_version, gen_shape_description
+from modules.utils.utils import split_string_into_chunks
 
 from modules import models, residualmodels
 
@@ -154,21 +155,6 @@ def gen_word_objs_embeddings(obj, clip_model):
     return text_features
 
 
-def split_string_into_chunks(input_string, chunk_size: int):
-    """
-    Split the input string into chunks of 'chunk_size' characters.
-
-    Args:
-    - input_string (str): The string to be split.
-    - chunk_size (int): The maximum number of characters in each chunk.
-
-    Returns:
-    - list of str: A list containing the split substrings.
-    """
-    # Use a list comprehension to split the string into chunks of 'chunk_size' characters
-    return [input_string[i:i+chunk_size] for i in range(0, len(input_string), chunk_size)]
-
-
 def calculate_cos_angle_matrix(vectors):
     n = len(vectors)
     cos_angle_matrix = torch.zeros((n, n))
@@ -237,8 +223,6 @@ def evaluate_model(model, dataloader, device, preprocess=clip_preprocess):
                                                                    anchor_text_features).mean().item()
                 similarities.append(similarity)
 
-    dbe(description_shapes)
-
     return similarities, batch_features_all
 
 
@@ -262,6 +246,7 @@ if __name__ == '__main__':
     # similarities, batch_features_all = evaluate_model(original_clip_model, test_loader, device, original_clip_preprocess)
     # similarities, batch_features_all = evaluate_model(fine_tuned_clip_model, test_loader, device, fine_tuned_clip_preprocess)
 
+    # batch_features_all = evaluate_text_embedings(original_clip_model, test_loader, device, original_clip_preprocess)
     batch_features_all = evaluate_text_embedings(fine_tuned_clip_model, test_loader, device, fine_tuned_clip_preprocess)
 
     # Flatten the nested list to a flat list of tensors

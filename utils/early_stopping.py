@@ -54,32 +54,38 @@ class EarlyStopping:
 
         if self.best_score is None:
             self.best_score = score
-            self.save_checkpoint(val_loss, model, 'best')
-        elif score < self.best_score and self.patience is not None:
-            self.counter += 1
+            self.save_checkpoint(val_loss, model, 'best', checkpoint_type='best')
 
-            if self.verbose:
-                print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
+        elif score < self.best_score:
+            if self.patience is not None:
+                self.counter += 1
 
-            if self.counter >= self.patience:
-                self.early_stop = True
-                should_stop = True
+                if self.verbose:
+                    print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
+
+                if self.counter >= self.patience:
+                    self.early_stop = True
+                    should_stop = True
+
         else:
             self.best_score = score
-            self.save_checkpoint(val_loss, model, 'best')
+            self.save_checkpoint(val_loss, model, 'best', checkpoint_type='best')
             self.counter = 0
 
         if self.save_every is not None:
             if (epoch + 1) % self.save_every == 0:
-                self.save_checkpoint(val_loss, model, f'epoch{epoch + 1}')
+                self.save_checkpoint(val_loss, model, f'epoch {epoch + 1}', checkpoint_type='epoch')
 
         return should_stop
 
 
-    def save_checkpoint(self, val_loss, model, name):
+    def save_checkpoint(self, val_loss, model, name, checkpoint_type):
         '''Saves model and model arguments when validation loss decreases.'''
         if self.verbose:
-            print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}). Saving model and arguments ...')
+            if checkpoint_type == 'best':
+                print(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}). Saving model and arguments ...') 
+            elif checkpoint_type == 'epoch':
+                print(f'Saving model and arguments for epoch {name} ...')
 
         model_save_path = os.path.join(self.save_path, f'{name}.pt')
 
