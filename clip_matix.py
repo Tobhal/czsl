@@ -22,12 +22,14 @@ from data import dataset_bengali as dset
 from data.dataset_bengali import ImageLoader
 
 from modules.utils import set_phos_version, set_phoc_version, gen_shape_description
-from modules.utils.utils import split_string_into_chunks
+from modules.utils.utils import split_string_into_chunks, get_phosc_description
 
 from modules import models, residualmodels
 
 import numpy as np
 import pandas as pd
+
+from torchvision import transforms
 
 split = 'Fold0_use_50'
 use_augmented = False
@@ -134,23 +136,11 @@ def process_text_chunks(text_chunks, model, device):
     return batch_features
 
 
-def gen_word_objs_embeddings(obj, clip_model):
-    shape_description = gen_shape_description(obj)
-
-    shape_description = split_string_into_chunks(shape_description, 75)
-
-    text = clip.tokenize(shape_description).to(device)
+def text_features_from_description(description, clip_model):
+    text = clip.tokenize(description).to(device)
 
     with torch.no_grad():
         text_features = clip_model.encode_text(text)
-
-    # Check if the tensor's shape is less than [94, 512]
-    if text_features.shape[0] < 94:
-        # Calculate the number of rows to pad
-        pad_rows = 94 - text_features.shape[0]
-
-        # Pad the tensor
-        text_features = F.pad(text_features, (0, 0, pad_rows, 0))
         
     return text_features
 
@@ -162,8 +152,8 @@ def calculate_cos_angle_matrix(vectors):
     for i in range(n):
         for j in range(n):
             # Convert vectors to PyTorch tensors if they aren't already
-            vec_i = torch.tensor(vectors[i]).flatten()
-            vec_j = torch.tensor(vectors[j]).flatten()
+            vec_i = vectors[i]
+            vec_j = vectors[j]
 
             # Calculate the dot product of the two vectors
             try:
@@ -187,43 +177,50 @@ def calculate_cos_angle_matrix(vectors):
     return cos_angle_matrix
 
 
-def evaluate_model(model, dataloader, device, preprocess=clip_preprocess):
+def evaluate_model_batch(model, dataloader, device, preprocess):
     model.eval()
     similarities = []
-    batch_features_all = []
+    losses = []
+    accuracies = []
 
-    description_shapes = []
+    transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+    ])
 
     with torch.no_grad():
-        for batch in tqdm(dataloader, position=0, desc="Batch Progress"):
-            # Unpacking the batch data
+        for batch in tqdm(dataloader, desc="Evaluating"):
             _, _, _, _, _, _, _, _, image_names, _, descriptions = batch
 
+            # Process images
+            images = [preprocess(loader(img_name)).unsqueeze(0).to(device) for img_name in image_names]
+            images = torch.cat(images, dim=0)
+
             # Precompute embeddings for all descriptions in the batch
-            cash_descriptions = [gen_word_objs_embeddings(description, model) for description in
-                                 tqdm(descriptions, position=1, desc="Descriptions Progress", leave=False)]
-            
-            for i in tqdm(range(len(image_names)), position=1, desc="Image Names Progress", leave=False):
-                anchor_img_name = image_names[i]
-                anchor_desc = descriptions[i]
+            descriptions_enc = torch.stack([text_features_from_description(description, model) for description in descriptions]).squeeze(1)
 
-                # Load and preprocess the anchor image
-                anchor_img = loader(anchor_img_name)
-                anchor_img = preprocess(anchor_img).unsqueeze(0).to(device)
+            # Encode images using the model
+            images_enc = model.encode_image(images)
 
-                # Encode image and text using the model
-                anchor_image_features = model.encode_image(anchor_img)
-                anchor_text_features = cash_descriptions[i]
+            # Calculate cosine similarity between each image and text features in the batch
+            similarity_matrix = torch.nn.functional.cosine_similarity(images_enc.unsqueeze(1), descriptions_enc.unsqueeze(0), dim=2)
+            similarities.extend(similarity_matrix.diag().cpu().tolist())
 
-                # Add anchor text features to the batch features list
-                batch_features_all.append(anchor_image_features)
+            # Compute loss and accuracy for validation metrics
+            image_logits = images_enc @ descriptions_enc.t()
+            ground_truth = torch.arange(len(image_logits)).long().to(device)
+            loss = (F.cross_entropy(image_logits, ground_truth) + F.cross_entropy(image_logits.t(), ground_truth)).div(2)
+            losses.append(loss.item())
 
-                # Calculate cosine similarity between image and text features of the anchor
-                similarity = torch.nn.functional.cosine_similarity(anchor_image_features,
-                                                                   anchor_text_features).mean().item()
-                similarities.append(similarity)
+            acc_i = (torch.argmax(image_logits, 1) == ground_truth).sum()
+            acc_t = (torch.argmax(image_logits, 0) == ground_truth).sum()
+            accuracy = (acc_i + acc_t).float() / 2 / len(image_names)
+            accuracies.append(accuracy.item())
 
-    return similarities, batch_features_all
+    avg_loss = sum(losses) / len(losses)
+    avg_accuracy = sum(accuracies) / len(accuracies)
+
+    return avg_loss, avg_accuracy, similarities
 
 
 def evaluate_text_embedings(model, dataloader, device, preprocess=clip_preprocess):
@@ -234,10 +231,15 @@ def evaluate_text_embedings(model, dataloader, device, preprocess=clip_preproces
     with torch.no_grad():
         for batch in tqdm(dataloader, position=0, desc="Batch Progress"):
             # Unpacking the batch data
-            *_, image_names, _, descriptions = batch
+            *_, image_names, _, words = batch
 
-            # Precompute embeddings for all descriptions in the batch
-            batch_features_all.append([gen_word_objs_embeddings(description, model) for description in tqdm(descriptions, position=1, desc="Descriptions Progress", leave=False)])
+            # phosc_description = [get_phosc_description(word) for word in tqdm(words, position=1, desc="Words Progress", leave=False)]
+
+            desc = text_features_from_description(words, model)
+
+            batch_features_all.append(desc)
+
+    batch_features_all = torch.cat(batch_features_all, dim=0)
 
     return batch_features_all
 
@@ -249,10 +251,7 @@ if __name__ == '__main__':
     # batch_features_all = evaluate_text_embedings(original_clip_model, test_loader, device, original_clip_preprocess)
     batch_features_all = evaluate_text_embedings(fine_tuned_clip_model, test_loader, device, fine_tuned_clip_preprocess)
 
-    # Flatten the nested list to a flat list of tensors
-    flat_list_of_tensors = [item for sublist in batch_features_all for item in sublist]
-
-    matrix = calculate_cos_angle_matrix(flat_list_of_tensors)
+    matrix = calculate_cos_angle_matrix(batch_features_all)
 
     # Find the minimum and maximum values in the matrix
     min_value = torch.min(matrix).item()
