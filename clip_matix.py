@@ -18,6 +18,8 @@ from tqdm import tqdm
 from flags import DATA_FOLDER, device
 
 from utils.dbe import dbe
+from utils.utils import text_features_from_description
+
 from data import dataset_bengali as dset
 from data.dataset_bengali import ImageLoader
 
@@ -136,15 +138,6 @@ def process_text_chunks(text_chunks, model, device):
     return batch_features
 
 
-def text_features_from_description(description, clip_model):
-    text = clip.tokenize(description).to(device)
-
-    with torch.no_grad():
-        text_features = clip_model.encode_text(text)
-        
-    return text_features
-
-
 def calculate_cos_angle_matrix(vectors):
     n = len(vectors)
     cos_angle_matrix = torch.zeros((n, n))
@@ -231,13 +224,9 @@ def evaluate_text_embedings(model, dataloader, device, preprocess=clip_preproces
     with torch.no_grad():
         for batch in tqdm(dataloader, position=0, desc="Batch Progress"):
             # Unpacking the batch data
-            *_, image_names, _, words = batch
+            *_, words = batch
 
-            # phosc_description = [get_phosc_description(word) for word in tqdm(words, position=1, desc="Words Progress", leave=False)]
-
-            desc = text_features_from_description(words, model)
-
-            batch_features_all.append(desc)
+            batch_features_all.append(text_features_from_description(words, model))
 
     batch_features_all = torch.cat(batch_features_all, dim=0)
 

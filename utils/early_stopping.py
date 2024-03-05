@@ -16,6 +16,7 @@ class EarlyStopping:
         self.val_loss_min = np.Inf
         self.save_every = save_every
         self.model_arguments = model_arguments
+        self.best_model_path = None
         
         # Initialize save_path with a new run-specific folder
         self.save_path = self.initialize_save_path(save_path)
@@ -55,6 +56,7 @@ class EarlyStopping:
         if self.best_score is None:
             self.best_score = score
             self.save_checkpoint(val_loss, model, 'best', checkpoint_type='best')
+            self.best_model_path = os.path.join(self.save_path, 'best.pt')
 
         elif score < self.best_score:
             if self.patience is not None:

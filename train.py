@@ -68,7 +68,7 @@ def main():
     set_phoc_version(args.phosc_version)
 
     # Define CLIP model
-    model_save_path = ospj('models', 'fine-tuned_clip', args.splitname, 'simple', 'model.pth')
+    model_save_path = ospj('models', 'trained_clip', 'Fold0_use_50', 'bengali_word', '1', 'best.pt')
     clip_model, clip_preprocess = clip.load("ViT-B/32", device=device)
 
     state_dict = torch.load(model_save_path, map_location=device)
@@ -267,7 +267,6 @@ def train_normal(epoch, image_extractor, model, train_loader, optimizer, writer)
             data[0] = image_extractor(data[0])
 
         loss, _ = model(data)
-
 
         optimizer.zero_grad()
         loss.backward()

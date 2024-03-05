@@ -14,7 +14,7 @@ def set_phoc_version(version_: str='eng'):
 
 # Generates PHOC component corresponding to alphabets/digits
 
-def generate_chars(word):
+def generate_chars(word: str) -> np.ndarray:
     '''The vector is a binary and stands for:
     [0123456789abcdefghijklmnopqrstuvwxyz] 
     '''
@@ -54,7 +54,7 @@ def generate_chars(word):
             elif char in bengali_vec:
                 vector[10 + bengali_vec.index(char)] = 1
     
-    return vector
+    return np.array(vector)
 
 # Generates PHOC component corresponding to 50 most frequent bi-grams of English
 
@@ -86,21 +86,26 @@ def generate_50(word):
 # Input: A word(string)
 # Output: PHOC vector
 ## Levels 1,2,3,4,5
-def generate_phoc_vector(word):
+def generate_phoc_vector(word, level=6):
     word = word.lower()
     # vector = generate_chars(word)
-    vector = generate_chars(word)
+    vector = [generate_chars(word)]
     L = len(word)
-    for split in range(2, 6): #split 3 
+
+    return_vector = [[vector]]
+
+    for split in range(2, level): #split 3 
         parts = L//split # parts 3
+        vec = list()
+
         for mul in range(split-1): # 0 - 2
-            vector += generate_chars(word[mul*parts:mul*parts+parts])
-        vector += generate_chars(word[(split-1)*parts:L])
-    # Append the most common 50 bigram text using L2 split
-    # vector += generate_50(word[0:L//2])
-    # vector += generate_50(word[L//2: L])
-    
-    return vector
+            vec.append([generate_chars(word[mul*parts:mul*parts+parts])])
+
+        vec.append([generate_chars(word[(split-1)*parts:L])])
+     
+        return_vector.append(vec)
+
+    return return_vector
 
 
 # Input: A list of words(strings)

@@ -501,13 +501,6 @@ class CompositionDataset(Dataset):
         if self.return_images and self.phase != 'train':
             data.append(image)
 
-        """
-        if self.phase == 'test' or self.phase == 'val':
-            data.append(image)
-            data.append(attr)
-            data.append(obj)
-        """
-
         return data
     
     def __len__(self):

@@ -1,8 +1,8 @@
 data:
   data_dir: BengaliWords/BengaliWords_CroppedVersion_Folds
   dataset: BengaliWords
-  split_name: Fold0_use_50
+  split_name: Fold4_use
   open_world: true
   pretrained_weights: pretrained_model/phosc/epochs.pt
-  augmented: true
+  augmented: false
   use_image_embedder: true

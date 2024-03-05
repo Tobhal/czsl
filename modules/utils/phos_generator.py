@@ -110,14 +110,11 @@ def generate_label_for_description(word: str, level=6) -> List[np.ndarray]:
     for split in range(2, level):
         parts = L // split
         vec = list()
-        temp_vector = np.array([])  # Initialize a temporary vector for each split
 
         for mul in range(split - 1):
             vec.append(word_vector(word[mul * parts:mul * parts + parts]))
-            # temp_vector = np.concatenate((temp_vector, word_vector(word[mul * parts:mul * parts + parts])), axis=0)
 
         vec.append(word_vector(word[(split - 1) * parts:L]))
-        # temp_vector = np.concatenate((temp_vector, word_vector(word[(split - 1) * parts:L])), axis=0)
 
         return_vector.append(vec)  # Append the temporary vector to the list
 
@@ -209,7 +206,7 @@ def gen_shape_description(word: str) -> List[str]:
 
         for split, phos in enumerate(pyramid_level_data):
             # shape_description += f'In the {pyramid_level_ordinal_idx} level (split {num2words(split)})'
-            shape_description += f'In the {pyramid_level_ordinal_idx} level'
+            shape_description += f'{pyramid_level_ordinal_idx} level'
 
             for idx, shape in enumerate(phos[0]):
                 shape_description += f', shape {num2words(idx + 1)} is present {num2words(int(shape))} times'
@@ -217,6 +214,7 @@ def gen_shape_description(word: str) -> List[str]:
                 if idx == len(phos[0]) - 1:
                     shape_description += '.\n'
 
+    dbe(shape_description)
     return shape_description
 """
     for pyramid_level_idx, pyramid_level_data in enumerate(phos):

@@ -23,6 +23,8 @@ from clip.clip import tokenize
 
 # PHOSC utils
 from modules.utils import set_phos_version, set_phoc_version
+from modules.utils.utils import get_phosc_description
+from utils.utils import text_features_from_description
 from modules import models, residualmodels
 from timm import create_model
 from modules.utils import gen_shape_description_simple, gen_shape_description
@@ -54,103 +56,52 @@ def num_training_steps(train_dataloader, max_epochs, batch_size, accumulate_grad
     return total_steps
 
 
-def gen_word_objs_embeddings(obj, clip_model):
-    shape_description = gen_shape_description(obj)
 
-    shape_description = split_string_into_chunks(shape_description, 75)
-
-    text = clip.tokenize(shape_description).to(device)
-
-    with torch.no_grad():
-        text_features = clip_model.encode_text(text)
-
-    # Check if the tensor's shape is less than [94, 512]
-    if text_features.shape[0] < 94:
-        # Calculate the number of rows to pad
-        pad_rows = 94 - text_features.shape[0]
-
-        # Pad the tensor
-        text_features = F.pad(text_features, (0, 0, pad_rows, 0))
-        
-    return text_features
-
-
-def train_step_batch(image, text_feat, n: int, clip_model, optimizer, lr_scheduler, batch_size: int) -> Tuple[float, float]:
-    loss = 0
-    acc = 0
-
-    n = math.ceil(len(image) // batch_size)
-
+def train_step_batch(images, words, batch_size, clip_model, optimizer, lr_scheduler):
+    # Transform setup
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
-        transforms.ToTensor()
+        transforms.ToTensor(),
     ])
 
-    image = torch.stack([transform(img) for img in image])
+    # Process images
+    images = torch.stack([transform(img) for img in images])
+    images = clip_model.encode_image(images)
 
-    n = n if n > 0 else 1
-    image_emb = torch.chunk(image, n)
+    # Process words
+    texts = text_features_from_description(words, clip_model)
 
-    with torch.no_grad():
-        ims = [F.normalize(clip_model.encode_image(img), dim=1) for img in image_emb]
-        txt = [F.normalize(t) for t in text_feat]
+    # Normalize image embeddings after encoding
+    ims = [F.normalize(image, dim=0) for image in images]
+    ims = torch.stack(ims)
 
-        ims = torch.cat(ims)
-        txt = torch.stack(txt)
+    # Normalize text embeddings after encoding
+    txt = [F.normalize(txt, dim=0) for txt in texts]
+    txt = torch.stack(txt)
 
-        # Reduce the text tensor to a single tensor
-        txt = txt.mean(dim=1)
+    # Compute similarity scores between images and texts
+    image_logits = ims @ txt.t() * clip_model.logit_scale.exp()
+    ground_truth = torch.arange(len(image_logits)).long().to(image_logits.device)
 
-        if len(ims.shape) == 3:
-            ims = list(ims)
-            txt = list(txt)
-        else:
-            ims = [ims]
-            txt = [txt]
+    # Compute loss
+    total_loss = (F.cross_entropy(image_logits, ground_truth) + F.cross_entropy(image_logits.t(), ground_truth)).div(2)
 
-        image_logits = torch.cat(ims) @ torch.cat(txt).t() * clip_model.logit_scale.exp()
-        ground_truth = torch.arange(len(image_logits)).long().to(image_logits.device)
-
-        loss = (F.cross_entropy(image_logits, ground_truth) + F.cross_entropy(image_logits.t(), ground_truth)).div(2)
-
-        acc_i = (torch.argmax(image_logits, 1) == ground_truth).sum()
-        acc_t = (torch.argmax(image_logits, 0) == ground_truth).sum()
-
-        loss = loss / len(ims)
-        acc = (acc_i + acc_t) / 2 / len(image) / len(ims)
+    # Compute accuracy
+    acc_i = (torch.argmax(image_logits, 1) == ground_truth).sum()
+    acc_t = (torch.argmax(image_logits, 0) == ground_truth).sum()
+    acc = (acc_i + acc_t).float() / 2 / len(images)
 
     optimizer.zero_grad()
+    total_loss.backward()
+    optimizer.step()
 
-    # Image loss
-    for j, mb in enumerate(image_emb):
-        actual_batch_size = mb.size(0)  # Get the actual size of the current mini-batch
-        images_tmp = copy.deepcopy(ims)
-        images_tmp[0][j*batch_size:j*batch_size + actual_batch_size] = F.normalize(clip_model.encode_image(mb), dim=1)
-        
-        image_logits = torch.cat(images_tmp) @ torch.cat(txt).t() * clip_model.logit_scale.exp()
-        
-        ground_truth = torch.arange(len(image_logits)).long().to(image_logits.device)
-        
-        loss = (F.cross_entropy(image_logits, ground_truth) + F.cross_entropy(image_logits.t(), ground_truth))/2
-        
-        loss.backward()
+    if lr_scheduler is not None:
+        lr_scheduler.step()
 
-    # Text loss
-    for j, mb in enumerate(text_feat):
-        actual_batch_size = mb.size(0)  # Get the actual size of the current mini-batch
-        txt_tmp = copy.deepcopy(txt)
-        # No need to re-tokenize; mb is already a tensor of token indices
-        txt_tmp[0][j*batch_size:j*batch_size + actual_batch_size] = F.normalize(clip_model.encode_text(mb), dim=1)
-        
-        image_logits = torch.cat(ims) @ torch.cat(txt_tmp).t() * clip_model.logit_scale.exp()
-        
-        loss = (F.cross_entropy(image_logits, ground_truth) + F.cross_entropy(image_logits.t(), ground_truth))/2
-        
-        loss.backward()   
-
+    # Clamp the logit scale
     clip_model.logit_scale.data = clip_model.logit_scale.data.clamp(-np.log(100), np.log(100))
-    
-    return loss, acc
+
+    return total_loss.item(), acc.item()
 
 
 def train_one_epoch(epoch: int, train_loader, clip_model, image_loader, optimizer, lr_scheduler) -> Tuple[float, float]:
@@ -162,15 +113,15 @@ def train_one_epoch(epoch: int, train_loader, clip_model, image_loader, optimize
     for batch in train_bar:
         optimizer.zero_grad()
 
-        *_, image_names, _, descriptions = batch
+        *_, image_names, _, words = batch
 
+        # words = [get_phosc_description(word) for word in words]
         images = [image_loader(image) for image in tqdm(image_names, position=1, desc='Processing Images', leave=False)]
-        emb_descriptions = [gen_word_objs_embeddings(description, clip_model) for description in tqdm(descriptions, position=1, desc='Generating Embeddings', leave=False)]
 
-        temp_loss, temp_acc = train_step_batch(images, emb_descriptions, 0, clip_model, optimizer, lr_scheduler, len(batch))
+        temp_loss, temp_acc = train_step_batch(images, words, 32, clip_model, optimizer, lr_scheduler)
 
-        running_loss += temp_loss.item()
-        running_acc += temp_acc.item()
+        running_loss += temp_loss
+        running_acc += temp_acc
 
     loss = running_loss / len(train_loader)
     acc = running_acc / len(train_loader)
@@ -390,8 +341,7 @@ def main():
 
     early_stopping = EarlyStopping(
         save_path=ospj('models', 'trained_clip', args.split_name, args.name),
-        # patience=args.patience,
-        patience=None,
+        patience=args.patience,
         verbose=args.verbose,
         save_every=args.save_every,
         model_arguments=args
@@ -416,6 +366,8 @@ def main():
 
         if early_stopping(validation_loss, clip_model, epoch):
             print('Early stopping')
+            print(f'Best model saved at {early_stopping.best_model_path}')
+            print(f'Best model validation loss: {early_stopping.best_score}')
             break
 
 

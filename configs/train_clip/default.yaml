@@ -28,17 +28,16 @@ training:
   save_every: 10
   test_set: val
   topk: 1
-  # workers: 8
-  workers: 0  # So the dataloaders work, shared refrence to cuda problems
+  workers: 0
   update_features: false  # temp, should be `false`
   freeze_features: false
   epoch_max_margin: 15
   cpu_eval: false # Temp
 
 optimizer:
-  epsilon: 1.e-8
+  epsilon: 10.e-08
   weight_decay: 0.2
-  learning_rate: 5.e-4
+  learning_rate: 5.0e-05
 
 scheduer:
   cycle_mult: 1.0
